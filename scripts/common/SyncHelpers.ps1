@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     Shared logic of Sync.Delta and Sync.DeltaAfterEnable: calls the parameterless
     Start-OnbDeltaSync on the JEA endpoint of the Entra Connect server (DECISIONS X5).

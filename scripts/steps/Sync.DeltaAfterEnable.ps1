@@ -1,4 +1,4 @@
-#Requires -Version 7.2
+﻿#Requires -Version 7.2
 <#
 .SYNOPSIS
     Sync.DeltaAfterEnable (SPEC §7, DECISIONS S9): triggers a delta sync on the Entra Connect server via JEA.
@@ -7,8 +7,8 @@
 [CmdletBinding()]
 param()
 
-Import-Module (Join-Path $PSScriptRoot '..' 'common' 'Onboarding.Step.psm1') -Force
-. (Join-Path $PSScriptRoot '..' 'common' 'SyncHelpers.ps1')
+Import-Module ([System.IO.Path]::Combine($PSScriptRoot, '..', 'common', 'Onboarding.Step.psm1')) -Force
+. ([System.IO.Path]::Combine($PSScriptRoot, '..', 'common', 'SyncHelpers.ps1'))
 
 if ($MyInvocation.InvocationName -ne '.') {
     Invoke-StepMain -Handler ${function:Invoke-DeltaSync}

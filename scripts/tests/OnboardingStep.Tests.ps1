@@ -1,9 +1,9 @@
-#Requires -Modules @{ ModuleName = 'Pester'; ModuleVersion = '5.5.0' }
+﻿#Requires -Modules @{ ModuleName = 'Pester'; ModuleVersion = '5.5.0' }
 <# Tests of the shared module Onboarding.Step.psm1. Run: Invoke-Pester ./scripts/tests #>
 
 BeforeAll {
     . (Join-Path $PSScriptRoot 'Stubs.ps1')
-    Import-Module (Join-Path $PSScriptRoot '..' 'common' 'Onboarding.Step.psm1') -Force
+    Import-Module ([System.IO.Path]::Combine($PSScriptRoot, '..', 'common', 'Onboarding.Step.psm1')) -Force
 }
 
 Describe 'ConvertTo-LdapFilterValue (RFC 4515)' {
@@ -40,13 +40,48 @@ Describe 'Get-SafeErrorReason' {
         $reason | Should -BeExactly 'Unerwarteter Fehler (Exception).'
     }
 
-    It 'maps AD exceptions to fixed texts' {
-        Get-SafeErrorReason ([Microsoft.ActiveDirectory.Management.ADPasswordComplexityException]::new('Geheim-Start!2026')) |
-            Should -BeExactly 'Startpasswort entspricht nicht der Domänen-Kennwortrichtlinie.'
+    It 'maps AD exceptions to fixed codes and texts' {
+        $safe = Get-SafeError ([Microsoft.ActiveDirectory.Management.ADPasswordComplexityException]::new('Geheim-Start!2026'))
+        $safe.code | Should -Be 'password-policy'
+        $safe.reason | Should -BeExactly 'Startpasswort entspricht nicht der Domänen-Kennwortrichtlinie.'
     }
 
-    It 'returns messages of safe exceptions' {
-        Get-SafeErrorReason (New-SafeException 'Gruppe X nicht gefunden.') | Should -BeExactly 'Gruppe X nicht gefunden.'
+    It 'returns code and message of safe exceptions' {
+        $safe = Get-SafeError (New-SafeException -Code 'group-not-found' 'Gruppe X nicht gefunden.')
+        $safe.code | Should -Be 'group-not-found'
+        $safe.reason | Should -BeExactly 'Gruppe X nicht gefunden.'
+        (Get-SafeError (New-SafeException 'Ohne Code.')).code | Should -Be 'invalid-input'
+    }
+
+    It 'rejects malformed codes on safe exceptions' {
+        { New-SafeException -Code 'Kein Code!' 'x' } | Should -Throw
+    }
+}
+
+Describe 'New-StepResult codes' {
+    It 'done needs no code' {
+        (New-StepResult -Context (New-StepContext -DryRun $false) -Status done).code | Should -BeNullOrEmpty
+    }
+
+    It '<Status> without code becomes unspecified (visible script bug)' -TestCases @(
+        @{ Status = 'failed' }, @{ Status = 'needsInput' }, @{ Status = 'waiting' }
+    ) {
+        (New-StepResult -Context (New-StepContext -DryRun $false) -Status $Status).code | Should -Be 'unspecified'
+    }
+
+    It 'malformed code becomes invalid-code' {
+        (New-StepResult -Context (New-StepContext -DryRun $false) -Status failed -Code 'Freitext mit Leerzeichen').code | Should -Be 'invalid-code'
+    }
+
+    It 'no step script path produces unspecified' {
+        $files = Get-ChildItem -Path (Join-Path (Join-Path $PSScriptRoot '..') 'steps'), (Join-Path (Join-Path $PSScriptRoot '..') 'common') -Include '*.ps1', '*.psm1' -Recurse
+        foreach ($file in $files) {
+            foreach ($line in (Get-Content -LiteralPath $file.FullName)) {
+                if ($line -match 'New-StepResult\b.*-Status (failed|needsInput|waiting|manualTask|skipped)\b') {
+                    $line | Should -Match '-Code ' -Because "$($file.Name): $line"
+                }
+            }
+        }
     }
 }
 
@@ -66,12 +101,14 @@ Describe 'Invoke-StepMain' {
         $lines.Count | Should -Be 1
         $result = $lines[0] | ConvertFrom-Json
         $result.status | Should -Be 'failed'
+        $result.code | Should -Be 'unexpected-error'
         $result.reason | Should -BeExactly 'Unerwarteter Fehler (Exception).'
         $lines[0] | Should -Not -Match 'Geheim'
     }
 
     It 'rejects empty or invalid input with a safe reason' {
         { Read-StepInput -Json 'kein json' } | Should -Throw -ExpectedMessage 'Eingabe ist kein gültiges JSON.'
+        try { Read-StepInput -Json 'kein json' } catch { (Get-SafeError $_).code | Should -Be 'invalid-input' }
     }
 }
 
@@ -96,13 +133,23 @@ Describe 'ConvertFrom-JeaResult' {
         $jea = [pscustomobject]@{ status = 'done'; reason = 'Dry-Run.'; plannedActions = @('Ordner anlegen'); output = [pscustomobject]@{ path = 'X' } }
         $result = ConvertFrom-JeaResult -Context $context -JeaResult $jea
         $result.status | Should -Be 'done'
+        $result.code | Should -BeNullOrEmpty
         $result.plannedActions | Should -Be @('Ordner anlegen')
         $result.output.path | Should -Be 'X'
     }
 
     It 'fails on missing or unknown status' {
         $context = New-StepContext -DryRun $false
-        (ConvertFrom-JeaResult -Context $context -JeaResult $null).status | Should -Be 'failed'
-        (ConvertFrom-JeaResult -Context $context -JeaResult ([pscustomobject]@{ status = 'kaputt' })).status | Should -Be 'failed'
+        foreach ($jea in @($null, [pscustomobject]@{ status = 'kaputt' })) {
+            $result = ConvertFrom-JeaResult -Context $context -JeaResult $jea
+            $result.status | Should -Be 'failed'
+            $result.code | Should -Be 'jea-invalid-result'
+        }
+    }
+
+    It 'passes the endpoint code through' {
+        $jea = [pscustomobject]@{ status = 'failed'; code = 'hash-mismatch'; reason = 'Abgelehnt: SHA-256 stimmt nicht mit dem Inhalt überein.' }
+        $result = ConvertFrom-JeaResult -Context (New-StepContext -DryRun $false) -JeaResult $jea
+        $result.code | Should -Be 'hash-mismatch'
     }
 }

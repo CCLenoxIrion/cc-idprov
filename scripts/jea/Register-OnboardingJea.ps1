@@ -1,4 +1,4 @@
-#Requires -RunAsAdministrator
+﻿#Requires -RunAsAdministrator
 <#
 .SYNOPSIS
     Registers the JEA endpoint for onboarding on DC01 ("CC.Onboarding") or CC01

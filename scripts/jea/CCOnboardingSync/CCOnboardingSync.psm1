@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     JEA function of the endpoint "CC.Onboarding.Sync" on the Entra Connect server (CC01).
 
@@ -11,8 +11,8 @@
 Set-StrictMode -Version 2.0
 
 function New-OnbSyncResult {
-    param([string] $Status, [string] $Reason, [hashtable] $Output = @{})
-    return [pscustomobject]@{ status = $Status; reason = $Reason; plannedActions = @(); output = [pscustomobject] $Output }
+    param([string] $Status, [string] $Code, [string] $Reason, [hashtable] $Output = @{})
+    return [pscustomobject]@{ status = $Status; code = $Code; reason = $Reason; plannedActions = @(); output = [pscustomobject] $Output }
 }
 
 function Invoke-OnbSyncCycle {
@@ -34,9 +34,9 @@ function Start-OnbDeltaSync {
     catch {
         # The message is only inspected, never returned.
         if ($_.Exception.Message -match 'busy|already in progress|bereits') {
-            return New-OnbSyncResult -Status waiting -Reason 'Synchronisierung läuft bereits (busy).'
+            return New-OnbSyncResult -Status waiting -Code 'sync-busy' -Reason 'Synchronisierung läuft bereits (busy).'
         }
-        return New-OnbSyncResult -Status failed -Reason ('Delta-Sync konnte nicht gestartet werden ({0}).' -f $_.Exception.GetType().Name)
+        return New-OnbSyncResult -Status failed -Code 'sync-error' -Reason ('Delta-Sync konnte nicht gestartet werden ({0}).' -f $_.Exception.GetType().Name)
     }
 }
 

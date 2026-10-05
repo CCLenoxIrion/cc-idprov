@@ -1,4 +1,4 @@
-#Requires -Version 7.2
+﻿#Requires -Version 7.2
 <#
 .SYNOPSIS
     Logon.Script (SPEC §4.4, §7): writes the logon script via Set-OnbLogonScript on the JEA
@@ -12,7 +12,7 @@
 [CmdletBinding()]
 param()
 
-Import-Module (Join-Path $PSScriptRoot '..' 'common' 'Onboarding.Step.psm1') -Force
+Import-Module ([System.IO.Path]::Combine($PSScriptRoot, '..', 'common', 'Onboarding.Step.psm1')) -Force
 
 function Invoke-LogonScript {
     param(
@@ -24,7 +24,7 @@ function Invoke-LogonScript {
     Assert-SamAccountName $sam
     $logon = $In['logonScript']
     if ($null -eq $logon -or -not $logon['contentBase64'] -or -not $logon['sha256']) {
-        throw (New-SafeException 'Inhalt des Anmeldeskripts fehlt in der Eingabe.')
+        throw (New-SafeException -Code 'missing-logon-content' 'Inhalt des Anmeldeskripts fehlt in der Eingabe.')
     }
 
     $jea = $In['config']['jea']

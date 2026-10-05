@@ -318,12 +318,17 @@ public sealed class RequestWorkflow(TimeProvider timeProvider, StepPlanRegistry 
 
         var kind = outcome.Kind;
         var message = outcome.Message;
+        var code = ReasonCodes.IsValid(outcome.Code) ? outcome.Code : null;
         var policy = BackoffPolicy.FromConfig(execution);
         if (kind == StepOutcomeKind.Waiting && policy.IsTimedOut(step.FirstAttemptAt ?? now, now))
         {
             kind = StepOutcomeKind.Failed;
             message = $"Timeout nach {policy.Timeout} ohne Erfolg. Letzter Stand: {outcome.Message}";
+            code = ReasonCodes.StepTimeout;
         }
+
+        step.ReasonCode = kind == StepOutcomeKind.Done ? null : code;
+        var codeNote = code is null ? null : $"Code: {code}";
 
         switch (kind)
         {
@@ -354,7 +359,7 @@ public sealed class RequestWorkflow(TimeProvider timeProvider, StepPlanRegistry 
                 if (step.WaitingSince is null)
                 {
                     step.WaitingSince = now;
-                    audits.Add(Audit(Actor.System, request, AuditActions.StepWaiting, nameof(StepStatus.Waiting), stepKey, message));
+                    audits.Add(Audit(Actor.System, request, AuditActions.StepWaiting, nameof(StepStatus.Waiting), stepKey, Join(message, codeNote)));
                 }
 
                 break;
@@ -363,7 +368,7 @@ public sealed class RequestWorkflow(TimeProvider timeProvider, StepPlanRegistry 
                 step.TransitionTo(StepStatus.Skipped, now);
                 step.Note = message;
                 step.WaitingSince = null;
-                audits.Add(Audit(Actor.System, request, AuditActions.StepFinished, nameof(StepStatus.Skipped), stepKey, Join(message, attempts)));
+                audits.Add(Audit(Actor.System, request, AuditActions.StepFinished, nameof(StepStatus.Skipped), stepKey, Join(message, codeNote, attempts)));
                 break;
 
             case StepOutcomeKind.Failed:
@@ -387,7 +392,7 @@ public sealed class RequestWorkflow(TimeProvider timeProvider, StepPlanRegistry 
 
                 step.WaitingSince = null;
                 audits.Add(Audit(Actor.System, request, AuditActions.StepFinished,
-                    kind == StepOutcomeKind.Failed ? AuditResults.Failed : target.ToString(), stepKey, Join(message, attempts)));
+                    kind == StepOutcomeKind.Failed ? AuditResults.Failed : target.ToString(), stepKey, Join(message, codeNote, attempts)));
                 break;
 
             default:

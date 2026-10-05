@@ -389,6 +389,38 @@ public sealed class RequestWorkflowTests
     }
 
     [Fact]
+    public void Reason_code_is_stored_audited_and_cleared_on_done()
+    {
+        var request = _f.Approved();
+        var step = request.FindStep(AdCreateUser)!;
+
+        W.ClaimStep(request, step);
+        var audits = W.ApplyStepOutcome(request, AdCreateUser, Onboarding.Core.Steps.StepOutcome.NeedsInput("andere OU", "ou-mismatch"));
+        Assert.Equal("ou-mismatch", step.ReasonCode);
+        Assert.Contains(audits, a => a.StepKey == AdCreateUser && (a.Details ?? "").Contains("Code: ou-mismatch", StringComparison.Ordinal));
+
+        W.RetryStep(request, AdCreateUser, Admin);
+        W.ClaimStep(request, step);
+        W.ApplyStepOutcome(request, AdCreateUser, Onboarding.Core.Steps.StepOutcome.Done());
+        Assert.Null(step.ReasonCode);
+    }
+
+    [Theory]
+    [InlineData("Freitext mit Leerzeichen")]
+    [InlineData("-leading-dash")]
+    [InlineData("UPPER")]
+    public void Malformed_reason_codes_are_not_stored(string code)
+    {
+        var request = _f.Approved();
+        var step = request.FindStep(AdCreateUser)!;
+
+        W.ClaimStep(request, step);
+        W.ApplyStepOutcome(request, AdCreateUser, Onboarding.Core.Steps.StepOutcome.Failed("kaputt", code));
+
+        Assert.Null(step.ReasonCode);
+    }
+
+    [Fact]
     public void Initial_password_is_deleted_on_cancel()
     {
         var request = _f.Approved();

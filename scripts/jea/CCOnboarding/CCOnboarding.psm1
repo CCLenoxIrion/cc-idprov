@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     JEA functions of the endpoint "CC.Onboarding" on DC01 (DECISIONS X5).
 
@@ -40,13 +40,17 @@ function Get-OnbEndpointConfig {
 function New-OnbResult {
     param(
         [Parameter(Mandatory)] [ValidateSet('done', 'waiting', 'failed', 'needsInput')] [string] $Status,
+        [string] $Code,
         [string] $Reason,
         [string[]] $PlannedActions = @(),
         [hashtable] $Output = @{}
     )
 
+    if ([string]::IsNullOrEmpty($Code) -and $Status -ne 'done') { $Code = 'unspecified' }
+
     return [pscustomobject]@{
         status         = $Status
+        code           = $Code
         reason         = $Reason
         plannedActions = @($PlannedActions)
         output         = [pscustomobject] $Output
@@ -91,15 +95,15 @@ function Get-OnbSha256 {
 }
 
 function Test-OnbLogonContent {
-    <# Returns $null if the content is acceptable, else a rejection reason. #>
+    <# Returns $null if the content is acceptable, else a rejection { code, reason }. #>
     param([Parameter(Mandatory)] [AllowEmptyCollection()] [byte[]] $Bytes)
 
     for ($i = 0; $i -lt $Bytes.Length; $i++) {
         $b = $Bytes[$i]
-        if ($b -gt 0x7F) { return 'Abgelehnt: Inhalt enthält Nicht-ASCII-Zeichen.' }
-        if ($b -eq 0x0A -and ($i -eq 0 -or $Bytes[$i - 1] -ne 0x0D)) { return 'Abgelehnt: Zeilenenden müssen CRLF sein.' }
-        if ($b -eq 0x0D -and ($i + 1 -ge $Bytes.Length -or $Bytes[$i + 1] -ne 0x0A)) { return 'Abgelehnt: Zeilenenden müssen CRLF sein.' }
-        if ($b -lt 0x20 -and $b -notin 0x09, 0x0A, 0x0D) { return 'Abgelehnt: Inhalt enthält Steuerzeichen.' }
+        if ($b -gt 0x7F) { return [pscustomobject]@{ code = 'non-ascii'; reason = 'Abgelehnt: Inhalt enthält Nicht-ASCII-Zeichen.' } }
+        if ($b -eq 0x0A -and ($i -eq 0 -or $Bytes[$i - 1] -ne 0x0D)) { return [pscustomobject]@{ code = 'line-endings'; reason = 'Abgelehnt: Zeilenenden müssen CRLF sein.' } }
+        if ($b -eq 0x0D -and ($i + 1 -ge $Bytes.Length -or $Bytes[$i + 1] -ne 0x0A)) { return [pscustomobject]@{ code = 'line-endings'; reason = 'Abgelehnt: Zeilenenden müssen CRLF sein.' } }
+        if ($b -lt 0x20 -and $b -notin 0x09, 0x0A, 0x0D) { return [pscustomobject]@{ code = 'control-chars'; reason = 'Abgelehnt: Inhalt enthält Steuerzeichen.' } }
     }
 
     return $null
@@ -153,7 +157,7 @@ function New-OnbHomeFolder {
         [switch] $DryRun
     )
 
-    if (-not (Test-OnbSam $Sam)) { return New-OnbResult -Status failed -Reason 'Abgelehnt: ungültiger sAMAccountName.' }
+    if (-not (Test-OnbSam $Sam)) { return New-OnbResult -Status failed -Code 'invalid-sam' -Reason 'Abgelehnt: ungültiger sAMAccountName.' }
 
     try {
         $config = Get-OnbEndpointConfig
@@ -162,7 +166,7 @@ function New-OnbHomeFolder {
         $planned = New-Object System.Collections.Generic.List[string]
 
         if (-not (Test-OnbAccountResolvable $account)) {
-            return New-OnbResult -Status waiting -Reason 'Konto ist auf diesem Domänencontroller noch nicht bekannt (Replikation).'
+            return New-OnbResult -Status waiting -Code 'account-not-resolvable' -Reason 'Konto ist auf diesem Domänencontroller noch nicht bekannt (Replikation).'
         }
 
         $exists = Test-OnbDirectory $path
@@ -197,7 +201,7 @@ function New-OnbHomeFolder {
         return New-OnbResult -Status done -Reason $reason -PlannedActions $planned -Output @{ path = $path }
     }
     catch {
-        return New-OnbResult -Status failed -Reason ('Home-Ordner: Fehler ({0}).' -f $_.Exception.GetType().Name)
+        return New-OnbResult -Status failed -Code 'home-folder-error' -Reason ('Home-Ordner: Fehler ({0}).' -f $_.Exception.GetType().Name)
     }
 }
 
@@ -212,20 +216,20 @@ function New-OnbHomeShare {
         [switch] $DryRun
     )
 
-    if (-not (Test-OnbSam $Sam)) { return New-OnbResult -Status failed -Reason 'Abgelehnt: ungültiger sAMAccountName.' }
+    if (-not (Test-OnbSam $Sam)) { return New-OnbResult -Status failed -Code 'invalid-sam' -Reason 'Abgelehnt: ungültiger sAMAccountName.' }
 
     try {
         $config = Get-OnbEndpointConfig
         $path = Resolve-OnbChildPath -Root $config.HomeRoot -Leaf $Sam
         $name = ([string] $config.ShareNamePattern).Replace('{sam}', $Sam)
-        if ($name -notmatch '^[A-Za-z0-9._-]{1,79}\$?$') { return New-OnbResult -Status failed -Reason 'Abgelehnt: ungültiger Freigabename (Konfiguration prüfen).' }
+        if ($name -notmatch '^[A-Za-z0-9._-]{1,79}\$?$') { return New-OnbResult -Status failed -Code 'invalid-share-name' -Reason 'Abgelehnt: ungültiger Freigabename (Konfiguration prüfen).' }
         $account = '{0}\{1}' -f $config.NetbiosDomain, $Sam
         $planned = New-Object System.Collections.Generic.List[string]
 
         $share = Get-OnbShare -Name $name
         if ($null -ne $share) {
             if (-not [string]::Equals([string] $share.Path.TrimEnd('\'), $path, [System.StringComparison]::OrdinalIgnoreCase)) {
-                return New-OnbResult -Status needsInput -Reason "Freigabe '$name' existiert bereits mit anderem Pfad."
+                return New-OnbResult -Status needsInput -Code 'share-path-mismatch' -Reason "Freigabe '$name' existiert bereits mit anderem Pfad."
             }
 
             $hasAccess = @(Get-OnbShareAccess -Name $name | Where-Object {
@@ -238,7 +242,7 @@ function New-OnbHomeShare {
         }
         else {
             if (-not (Test-OnbDirectory $path) -and -not $DryRun) {
-                return New-OnbResult -Status failed -Reason 'Home-Ordner fehlt.'
+                return New-OnbResult -Status failed -Code 'home-folder-missing' -Reason 'Home-Ordner fehlt.'
             }
 
             $planned.Add("Freigabe $name für $path anlegen (Ändern: $account)")
@@ -251,7 +255,7 @@ function New-OnbHomeShare {
         return New-OnbResult -Status done -Reason $reason -PlannedActions $planned -Output @{ share = $name }
     }
     catch {
-        return New-OnbResult -Status failed -Reason ('Freigabe: Fehler ({0}).' -f $_.Exception.GetType().Name)
+        return New-OnbResult -Status failed -Code 'home-share-error' -Reason ('Freigabe: Fehler ({0}).' -f $_.Exception.GetType().Name)
     }
 }
 
@@ -270,8 +274,8 @@ function Set-OnbLogonScript {
         [switch] $DryRun
     )
 
-    if (-not (Test-OnbSam $Sam)) { return New-OnbResult -Status failed -Reason 'Abgelehnt: ungültiger sAMAccountName.' }
-    if ($Sha256 -notmatch '^[0-9a-fA-F]{64}$') { return New-OnbResult -Status failed -Reason 'Abgelehnt: SHA-256 hat ein ungültiges Format.' }
+    if (-not (Test-OnbSam $Sam)) { return New-OnbResult -Status failed -Code 'invalid-sam' -Reason 'Abgelehnt: ungültiger sAMAccountName.' }
+    if ($Sha256 -notmatch '^[0-9a-fA-F]{64}$') { return New-OnbResult -Status failed -Code 'invalid-hash-format' -Reason 'Abgelehnt: SHA-256 hat ein ungültiges Format.' }
 
     try {
         $config = Get-OnbEndpointConfig
@@ -279,16 +283,16 @@ function Set-OnbLogonScript {
             $bytes = [System.Convert]::FromBase64String($ContentBase64)
         }
         catch {
-            return New-OnbResult -Status failed -Reason 'Abgelehnt: Inhalt ist kein gültiges Base64.'
+            return New-OnbResult -Status failed -Code 'invalid-base64' -Reason 'Abgelehnt: Inhalt ist kein gültiges Base64.'
         }
 
-        if ($bytes.Length -gt [int] $config.MaxLogonScriptBytes) { return New-OnbResult -Status failed -Reason 'Abgelehnt: Inhalt ist zu groß.' }
+        if ($bytes.Length -gt [int] $config.MaxLogonScriptBytes) { return New-OnbResult -Status failed -Code 'too-large' -Reason 'Abgelehnt: Inhalt ist zu groß.' }
         $contentProblem = Test-OnbLogonContent -Bytes $bytes
-        if ($contentProblem) { return New-OnbResult -Status failed -Reason $contentProblem }
+        if ($contentProblem) { return New-OnbResult -Status failed -Code $contentProblem.code -Reason $contentProblem.reason }
 
         $hash = Get-OnbSha256 -Bytes $bytes
         if (-not [string]::Equals($hash, $Sha256, [System.StringComparison]::OrdinalIgnoreCase)) {
-            return New-OnbResult -Status failed -Reason 'Abgelehnt: SHA-256 stimmt nicht mit dem Inhalt überein.'
+            return New-OnbResult -Status failed -Code 'hash-mismatch' -Reason 'Abgelehnt: SHA-256 stimmt nicht mit dem Inhalt überein.'
         }
 
         $fileName = ([string] $config.LogonFileNamePattern).Replace('{sam}', $Sam)
@@ -303,7 +307,7 @@ function Set-OnbLogonScript {
             }
 
             if (-not $Force) {
-                return New-OnbResult -Status needsInput -Reason ("{0} existiert mit anderem Inhalt (SHA-256 {1}, erwartet {2}); Datei wurde manuell angelegt oder geändert. Überschreiben nur per Admin-Aktion." -f $fileName, $existingHash, $hash) -Output $output
+                return New-OnbResult -Status needsInput -Code 'logon-script-modified' -Reason ("{0} existiert mit anderem Inhalt (SHA-256 {1}, erwartet {2}); Datei wurde manuell angelegt oder geändert. Überschreiben nur per Admin-Aktion." -f $fileName, $existingHash, $hash) -Output $output
             }
 
             $planned.Add("$fileName überschreiben (SHA-256 $hash)")
@@ -317,7 +321,7 @@ function Set-OnbLogonScript {
         return New-OnbResult -Status done -Reason $reason -PlannedActions $planned -Output $output
     }
     catch {
-        return New-OnbResult -Status failed -Reason ('Anmeldeskript: Fehler ({0}).' -f $_.Exception.GetType().Name)
+        return New-OnbResult -Status failed -Code 'logon-script-error' -Reason ('Anmeldeskript: Fehler ({0}).' -f $_.Exception.GetType().Name)
     }
 }
 

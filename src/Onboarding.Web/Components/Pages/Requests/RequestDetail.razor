@@ -252,6 +252,10 @@ else
                     <td>@step.Attempts</td>
                     <td>@(step.NextAttemptAt is { } next && step.Status is StepStatus.Pending or StepStatus.Waiting ? Local(next) : "")</td>
                     <td>
+                        @if (step.ReasonCode is not null)
+                        {
+                            <span class="badge text-bg-secondary font-monospace me-1" title="Grund-Code">@step.ReasonCode</span>
+                        }
                         @if (step.LastError is not null)
                         {
                             <div class="text-danger">@step.LastError</div>

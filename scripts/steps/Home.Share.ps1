@@ -1,4 +1,4 @@
-#Requires -Version 7.2
+﻿#Requires -Version 7.2
 <#
 .SYNOPSIS
     Home.Share (SPEC §7): calls New-OnbHomeShare on the JEA endpoint of the home server (DECISIONS X5).
@@ -7,7 +7,7 @@
 [CmdletBinding()]
 param()
 
-Import-Module (Join-Path $PSScriptRoot '..' 'common' 'Onboarding.Step.psm1') -Force
+Import-Module ([System.IO.Path]::Combine($PSScriptRoot, '..', 'common', 'Onboarding.Step.psm1')) -Force
 
 function Invoke-HomeShare {
     param(

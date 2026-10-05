@@ -1,4 +1,4 @@
-#Requires -Version 7.2
+﻿#Requires -Version 7.2
 <#
 .SYNOPSIS
     AD.Groups (SPEC §7): adds the request's account to the department's AD groups.
@@ -7,8 +7,8 @@
 [CmdletBinding()]
 param()
 
-Import-Module (Join-Path $PSScriptRoot '..' 'common' 'Onboarding.Step.psm1') -Force
-. (Join-Path $PSScriptRoot '..' 'common' 'AdHelpers.ps1')
+Import-Module ([System.IO.Path]::Combine($PSScriptRoot, '..', 'common', 'Onboarding.Step.psm1')) -Force
+. ([System.IO.Path]::Combine($PSScriptRoot, '..', 'common', 'AdHelpers.ps1'))
 
 function Invoke-AdGroups {
     param(
@@ -29,7 +29,7 @@ function Invoke-AdGroups {
             $group = Get-ADGroup -Identity ([string] $groupName) -ErrorAction Stop
         }
         catch [Microsoft.ActiveDirectory.Management.ADIdentityNotFoundException] {
-            throw (New-SafeException ("Gruppe '{0}' nicht gefunden." -f $groupName))
+            throw (New-SafeException -Code 'group-not-found' ("Gruppe '{0}' nicht gefunden." -f $groupName))
         }
 
         if ($memberOf -contains [string] $group.DistinguishedName) { continue }

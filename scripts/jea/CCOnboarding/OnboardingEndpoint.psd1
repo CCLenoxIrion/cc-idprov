@@ -1,4 +1,4 @@
-# Fixed configuration of the JEA endpoint "CC.Onboarding" on the home server / DC01.
+﻿# Fixed configuration of the JEA endpoint "CC.Onboarding" on the home server / DC01.
 # Only administrators may change this file (it defines where the endpoint writes).
 # Values must match the global configuration in the admin UI (Home, LogonScript).
 @{

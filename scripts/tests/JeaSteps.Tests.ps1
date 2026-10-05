@@ -1,12 +1,12 @@
-#Requires -Modules @{ ModuleName = 'Pester'; ModuleVersion = '5.5.0' }
+﻿#Requires -Modules @{ ModuleName = 'Pester'; ModuleVersion = '5.5.0' }
 <# Tests of the step scripts that call JEA endpoints (Invoke-JeaFunction mocked). #>
 
 BeforeAll {
     . (Join-Path $PSScriptRoot 'Stubs.ps1')
-    . (Join-Path $PSScriptRoot '..' 'steps' 'Home.Folder.ps1')
-    . (Join-Path $PSScriptRoot '..' 'steps' 'Home.Share.ps1')
-    . (Join-Path $PSScriptRoot '..' 'steps' 'Logon.Script.ps1')
-    . (Join-Path $PSScriptRoot '..' 'steps' 'Sync.Delta.ps1')
+    . ([System.IO.Path]::Combine($PSScriptRoot, '..', 'steps', 'Home.Folder.ps1'))
+    . ([System.IO.Path]::Combine($PSScriptRoot, '..', 'steps', 'Home.Share.ps1'))
+    . ([System.IO.Path]::Combine($PSScriptRoot, '..', 'steps', 'Logon.Script.ps1'))
+    . ([System.IO.Path]::Combine($PSScriptRoot, '..', 'steps', 'Sync.Delta.ps1'))
 }
 
 Describe 'Home.Folder / Home.Share' {
@@ -35,26 +35,37 @@ Describe 'Home.Folder / Home.Share' {
         Mock Invoke-JeaFunction { throw 'should not be called' }
         $in = New-TestStepInput -Step 'Home.Folder'
         $in['identity']['sam'] = '..\admin'
-        { Invoke-HomeFolder $in (New-StepContext -DryRun $false) } | Should -Throw
+        $result = Invoke-StepHandler ${function:Invoke-HomeFolder} $in (New-StepContext -DryRun $false)
+        $result.status | Should -Be 'failed'
+        $result.code | Should -Be 'invalid-sam'
         Should -Invoke Invoke-JeaFunction -Times 0 -Exactly
     }
 
     It 'transport errors become a sanitized reason' {
         Mock Invoke-JeaFunction { throw [System.Management.Automation.Remoting.PSRemotingTransportException]::new('Zugriff verweigert für DC01\geheim') }
-        $context = New-StepContext -DryRun $false
-        $result = try { Invoke-HomeShare (New-TestStepInput -Step 'Home.Share') $context } catch { New-StepResult -Context $context -Status failed -Reason (Get-SafeErrorReason $_) }
+        $result = Invoke-StepHandler ${function:Invoke-HomeShare} (New-TestStepInput -Step 'Home.Share') (New-StepContext -DryRun $false)
+        $result.status | Should -Be 'failed'
+        $result.code | Should -Be 'jea-unreachable'
         $result.reason | Should -BeExactly 'JEA-Endpunkt nicht erreichbar oder Zugriff verweigert.'
+    }
+
+    It 'passes the endpoint code through' {
+        Mock Invoke-JeaFunction { [pscustomobject]@{ status = 'needsInput'; code = 'share-path-mismatch'; reason = 'anderer Pfad'; plannedActions = @(); output = $null } }
+        $result = Invoke-HomeShare (New-TestStepInput -Step 'Home.Share') (New-StepContext -DryRun $false)
+        $result.status | Should -Be 'needsInput'
+        $result.code | Should -Be 'share-path-mismatch'
     }
 }
 
 Describe 'Logon.Script' {
     It 'forwards content, hash, force and dry-run' {
-        Mock Invoke-JeaFunction { [pscustomobject]@{ status = 'needsInput'; reason = 'manuell geändert'; plannedActions = @(); output = $null } }
+        Mock Invoke-JeaFunction { [pscustomobject]@{ status = 'needsInput'; code = 'logon-script-modified'; reason = 'manuell geändert'; plannedActions = @(); output = $null } }
         $in = New-TestStepInput -Step 'Logon.Script' -Force
         $in['logonScript']['sha256'] = 'a' * 64
         $result = Invoke-LogonScript $in (New-StepContext -DryRun $false)
 
         $result.status | Should -Be 'needsInput'
+        $result.code | Should -Be 'logon-script-modified'
         Should -Invoke Invoke-JeaFunction -ParameterFilter {
             $FunctionName -eq 'Set-OnbLogonScript' -and $Parameters['Force'] -eq $true -and $Parameters['Sha256'] -eq ('a' * 64) -and
             -not $Parameters.ContainsKey('Path')
@@ -65,16 +76,21 @@ Describe 'Logon.Script' {
         Mock Invoke-JeaFunction { throw 'should not be called' }
         $in = New-TestStepInput -Step 'Logon.Script'
         $in['logonScript'] = $null
-        { Invoke-LogonScript $in (New-StepContext -DryRun $false) } | Should -Throw -ExpectedMessage 'Inhalt des Anmeldeskripts fehlt in der Eingabe.'
+        $result = Invoke-StepHandler ${function:Invoke-LogonScript} $in (New-StepContext -DryRun $false)
+        $result.status | Should -Be 'failed'
+        $result.code | Should -Be 'missing-logon-content'
+        $result.reason | Should -Be 'Inhalt des Anmeldeskripts fehlt in der Eingabe.'
+        Should -Invoke Invoke-JeaFunction -Times 0 -Exactly
     }
 }
 
 Describe 'Sync.Delta' {
     It 'calls the parameterless function on the sync endpoint' {
-        Mock Invoke-JeaFunction { [pscustomobject]@{ status = 'waiting'; reason = 'busy'; plannedActions = @(); output = $null } }
+        Mock Invoke-JeaFunction { [pscustomobject]@{ status = 'waiting'; code = 'sync-busy'; reason = 'busy'; plannedActions = @(); output = $null } }
         $result = Invoke-DeltaSync (New-TestStepInput -Step 'Sync.Delta') (New-StepContext -DryRun $false)
 
         $result.status | Should -Be 'waiting'
+        $result.code | Should -Be 'sync-busy'
         Should -Invoke Invoke-JeaFunction -ParameterFilter {
             $FunctionName -eq 'Start-OnbDeltaSync' -and $ComputerName -eq 'CC01' -and $ConfigurationName -eq 'CC.Onboarding.Sync' -and $Parameters.Count -eq 0
         }

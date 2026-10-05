@@ -1,4 +1,4 @@
-#Requires -Version 7.2
+﻿#Requires -Version 7.2
 <#
 .SYNOPSIS
     Shared helpers for the onboarding step scripts (DECISIONS X3).
@@ -8,7 +8,9 @@
       * Input only as JSON on stdin (never command-line parameters, so secrets do not appear
         in process lists or logs).
       * Output only as one JSON object on stdout:
-        { status, reason, output, directoryObjectGuid, dryRun, plannedActions }.
+        { status, code, reason, output, directoryObjectGuid, dryRun, plannedActions }.
+      * code: fixed reason code (kebab-case, DECISIONS X10); required for every status except
+        'done'. Tests and the UI check the code, never the text.
       * Errors are always structured. Messages are sanitized: never raw exception messages,
         never parameter values, never secrets.
       * Dry-run: every change goes through Invoke-StepChange, which only records the planned
@@ -18,6 +20,8 @@
 Set-StrictMode -Version Latest
 
 $script:SafeMarker = 'OnbSafeMessage'
+$script:SafeCode = 'OnbSafeCode'
+$script:CodePattern = '^[a-z][a-z0-9-]{1,48}$'
 
 function New-StepContext {
     [CmdletBinding()]
@@ -39,32 +43,36 @@ function Read-StepInput {
     }
 
     if ([string]::IsNullOrWhiteSpace($Json)) {
-        throw (New-SafeException 'Keine Eingabe auf stdin erhalten.')
+        throw (New-SafeException -Code 'invalid-input' 'Keine Eingabe auf stdin erhalten.')
     }
 
     try {
         return $Json | ConvertFrom-Json -AsHashtable -Depth 20 -ErrorAction Stop
     }
     catch {
-        throw (New-SafeException 'Eingabe ist kein gültiges JSON.')
+        throw (New-SafeException -Code 'invalid-input' 'Eingabe ist kein gültiges JSON.')
     }
 }
 
 function New-SafeException {
     <# An exception whose message is known to be free of secrets and may be returned as reason. #>
     [CmdletBinding()]
-    param([Parameter(Mandatory)] [string] $Message)
+    param(
+        [Parameter(Mandatory, Position = 0)] [string] $Message,
+        [ValidatePattern('^[a-z][a-z0-9-]{1,48}$')] [string] $Code = 'invalid-input'
+    )
 
     $exception = [System.InvalidOperationException]::new($Message)
     $exception.Data[$script:SafeMarker] = $true
+    $exception.Data[$script:SafeCode] = $Code
     return $exception
 }
 
-function Get-SafeErrorReason {
+function Get-SafeError {
     <#
     .SYNOPSIS
-        Maps an error to a fixed, sanitized text. Raw exception messages are never returned
-        (they may contain parameter values), only messages created via New-SafeException.
+        Maps an error to a fixed code and a sanitized text. Raw exception messages are never
+        returned (they may contain parameter values), only messages created via New-SafeException.
     #>
     [CmdletBinding()]
     param([Parameter(Mandatory)] $ErrorRecord)
@@ -76,24 +84,37 @@ function Get-SafeErrorReason {
     }
 
     if ($exception.Data.Contains($script:SafeMarker)) {
-        return $exception.Message
+        $code = if ($exception.Data.Contains($script:SafeCode)) { [string] $exception.Data[$script:SafeCode] } else { 'invalid-input' }
+        return [pscustomobject]@{ code = $code; reason = $exception.Message }
     }
 
-    switch ($exception.GetType().FullName) {
-        'Microsoft.ActiveDirectory.Management.ADIdentityNotFoundException' { return 'AD-Objekt nicht gefunden.' }
-        'Microsoft.ActiveDirectory.Management.ADIdentityAlreadyExistsException' { return 'AD-Objekt existiert bereits.' }
-        'Microsoft.ActiveDirectory.Management.ADPasswordComplexityException' { return 'Startpasswort entspricht nicht der Domänen-Kennwortrichtlinie.' }
-        'Microsoft.ActiveDirectory.Management.ADServerDownException' { return 'Domänencontroller nicht erreichbar.' }
-        'System.UnauthorizedAccessException' { return 'Zugriff verweigert.' }
-        'System.Management.Automation.Remoting.PSRemotingTransportException' { return 'JEA-Endpunkt nicht erreichbar oder Zugriff verweigert.' }
-        'System.Management.Automation.CommandNotFoundException' { return 'Benötigter Befehl nicht verfügbar (Modul installiert?).' }
+    $typeName = $exception.GetType().FullName
+    $known = @{
+        'Microsoft.ActiveDirectory.Management.ADIdentityNotFoundException'      = @('ad-object-not-found', 'AD-Objekt nicht gefunden.')
+        'Microsoft.ActiveDirectory.Management.ADIdentityAlreadyExistsException' = @('ad-object-exists', 'AD-Objekt existiert bereits.')
+        'Microsoft.ActiveDirectory.Management.ADPasswordComplexityException'    = @('password-policy', 'Startpasswort entspricht nicht der Domänen-Kennwortrichtlinie.')
+        'Microsoft.ActiveDirectory.Management.ADServerDownException'            = @('dc-unreachable', 'Domänencontroller nicht erreichbar.')
+        'System.UnauthorizedAccessException'                                    = @('access-denied', 'Zugriff verweigert.')
+        'System.Management.Automation.Remoting.PSRemotingTransportException'    = @('jea-unreachable', 'JEA-Endpunkt nicht erreichbar oder Zugriff verweigert.')
+        'System.Management.Automation.CommandNotFoundException'                 = @('command-missing', 'Benötigter Befehl nicht verfügbar (Modul installiert?).')
+    }
+    if ($known.ContainsKey($typeName)) {
+        return [pscustomobject]@{ code = $known[$typeName][0]; reason = $known[$typeName][1] }
     }
 
-    if ($exception.GetType().FullName -like 'Microsoft.ActiveDirectory.Management.*') {
-        return 'AD-Operation fehlgeschlagen ({0}).' -f $exception.GetType().Name
+    if ($typeName -like 'Microsoft.ActiveDirectory.Management.*') {
+        return [pscustomobject]@{ code = 'ad-error'; reason = ('AD-Operation fehlgeschlagen ({0}).' -f $exception.GetType().Name) }
     }
 
-    return 'Unerwarteter Fehler ({0}).' -f $exception.GetType().Name
+    return [pscustomobject]@{ code = 'unexpected-error'; reason = ('Unerwarteter Fehler ({0}).' -f $exception.GetType().Name) }
+}
+
+function Get-SafeErrorReason {
+    <# Sanitized text of an error (see Get-SafeError). #>
+    [CmdletBinding()]
+    param([Parameter(Mandatory)] $ErrorRecord)
+
+    return (Get-SafeError $ErrorRecord).reason
 }
 
 function Invoke-StepChange {
@@ -124,12 +145,22 @@ function New-StepResult {
         [Parameter(Mandatory)] $Context,
         [Parameter(Mandatory)] [ValidateSet('done', 'waiting', 'failed', 'needsInput', 'manualTask', 'skipped')] [string] $Status,
         [string] $Reason,
+        [AllowEmptyString()] [string] $Code,
         [hashtable] $Output,
         [string] $DirectoryObjectGuid
     )
 
+    if ([string]::IsNullOrEmpty($Code)) {
+        # Every status except 'done' needs a code; a missing one is a script bug, visible as such.
+        $Code = if ($Status -eq 'done') { $null } else { 'unspecified' }
+    }
+    elseif ($Code -cnotmatch $script:CodePattern) {
+        $Code = 'invalid-code'
+    }
+
     $result = [ordered]@{
         status         = $Status
+        code           = $Code
         reason         = $Reason
         output         = $Output
         dryRun         = [bool] $Context.DryRun
@@ -170,7 +201,8 @@ function Invoke-StepMain {
         $result = & $Handler $stepInput $context
     }
     catch {
-        $result = New-StepResult -Context $context -Status failed -Reason (Get-SafeErrorReason $_)
+        $safe = Get-SafeError $_
+        $result = New-StepResult -Context $context -Status failed -Code $safe.code -Reason $safe.reason
     }
 
     $json = ConvertTo-StepJson $result
@@ -203,7 +235,7 @@ function Assert-SamAccountName {
     param([AllowEmptyString()] [AllowNull()] [string] $Sam)
 
     if ($null -eq $Sam -or $Sam -cnotmatch '^[a-z0-9]{1,20}$') {
-        throw (New-SafeException 'Ungültiger sAMAccountName in der Eingabe.')
+        throw (New-SafeException -Code 'invalid-sam' 'Ungültiger sAMAccountName in der Eingabe.')
     }
 }
 
@@ -253,7 +285,7 @@ function ConvertFrom-JeaResult {
     )
 
     if ($null -eq $JeaResult -or -not ($JeaResult.PSObject.Properties.Name -contains 'status')) {
-        return New-StepResult -Context $Context -Status failed -Reason 'JEA-Endpunkt lieferte kein gültiges Ergebnis.'
+        return New-StepResult -Context $Context -Status failed -Code 'jea-invalid-result' -Reason 'JEA-Endpunkt lieferte kein gültiges Ergebnis.'
     }
 
     if ($JeaResult.PSObject.Properties.Name -contains 'plannedActions') {
@@ -274,13 +306,14 @@ function ConvertFrom-JeaResult {
 
     $status = [string] $JeaResult.status
     if ($status -notin 'done', 'waiting', 'failed', 'needsInput', 'manualTask', 'skipped') {
-        return New-StepResult -Context $Context -Status failed -Reason 'JEA-Endpunkt lieferte einen unbekannten Status.'
+        return New-StepResult -Context $Context -Status failed -Code 'jea-invalid-result' -Reason 'JEA-Endpunkt lieferte einen unbekannten Status.'
     }
 
     $reason = if ($JeaResult.PSObject.Properties.Name -contains 'reason') { [string] $JeaResult.reason } else { $null }
-    return New-StepResult -Context $Context -Status $status -Reason $reason -Output $output
+    $code = if ($JeaResult.PSObject.Properties.Name -contains 'code') { [string] $JeaResult.code } else { $null }
+    return New-StepResult -Context $Context -Status $status -Code $code -Reason $reason -Output $output
 }
 
-Export-ModuleMember -Function New-StepContext, Read-StepInput, New-SafeException, Get-SafeErrorReason,
+Export-ModuleMember -Function New-StepContext, Read-StepInput, New-SafeException, Get-SafeError, Get-SafeErrorReason,
     Invoke-StepChange, New-StepResult, ConvertTo-StepJson, Invoke-StepMain, ConvertTo-LdapFilterValue,
     Assert-SamAccountName, Invoke-JeaFunction, ConvertFrom-JeaResult

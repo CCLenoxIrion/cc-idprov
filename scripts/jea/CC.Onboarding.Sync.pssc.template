@@ -1,4 +1,4 @@
-# Session configuration "CC.Onboarding.Sync" on CC01 – template (see CC.Onboarding.pssc.template).
+﻿# Session configuration "CC.Onboarding.Sync" on CC01 – template (see CC.Onboarding.pssc.template).
 @{
     SchemaVersion       = '2.0.0.0'
     SessionType         = 'RestrictedRemoteServer'

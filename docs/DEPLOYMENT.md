@@ -158,11 +158,11 @@ Auf DC01 bzw. CC01 als Administrator, Windows PowerShell 5.1:
 
 Der Worker ruft die Endpunkte per implizitem Remoting auf (`New-PSSession -ConfigurationName …`,
 `Import-PSSession -Prefix Remote`, lokaler Aufruf, Session im `finally` schließen). Dieser Weg ist
-**zu verifizieren** – genau das prüft `scripts/jea/Test-OnboardingJea.ps1` unter der Identität des
-Workers (ein gMSA kann sich nicht interaktiv anmelden, daher als geplante Aufgabe):
+**zu verifizieren** – genau das prüft `scripts/tools/Test-OnboardingJea.ps1` (PowerShell 7, Worker-Host;
+nicht Teil der Endpunkt-Dateien in `scripts/jea`) unter der Identität des Workers (ein gMSA kann sich nicht interaktiv anmelden, daher als geplante Aufgabe):
 
 ```powershell
-$script = 'C:\Program Files\CCOnboarding\scripts\jea\Test-OnboardingJea.ps1'
+$script = 'C:\Program Files\CCOnboarding\scripts\tools\Test-OnboardingJea.ps1'
 $action = New-ScheduledTaskAction -Execute 'C:\Program Files\PowerShell\7\pwsh.exe' `
     -Argument "-NoProfile -NonInteractive -File `"$script`" -ComputerName DC01 -ConfigurationName CC.Onboarding -OutFile C:\Temp\jea-dc.json"
 $principal = New-ScheduledTaskPrincipal -UserId 'CC\svc-onboard$' -LogonType Password
@@ -263,7 +263,19 @@ Invoke-Pester ./scripts/tests -Output Detailed
 ```
 
 Alle AD-/SMB-/ADSync-Cmdlets sind gemockt; `scripts/tests/Stubs.ps1` definiert werfende Stubs, damit
-ein vergessener Mock fehlschlägt statt ein echtes System zu berühren.
+ein vergessener Mock fehlschlägt statt ein echtes System zu berühren. Die Tests prüfen bei jedem
+`needsInput`/`failed`/`waiting` auch den Grund-Code (DECISIONS X10).
+
+Zusätzlich die JEA-Endpunkt-Tests unter **Windows PowerShell 5.1** (Standard-Host der Endpunkte):
+
+```powershell
+powershell.exe -NoProfile -Command "Invoke-Pester .\scripts\tests\JeaEndpoint.Tests.ps1 -Output Detailed"
+```
+
+Der C#-Test `ScriptConventionsTests` prüft nur, was sich ohne Fehlalarme statisch prüfen lässt
+(UTF-8-BOM aller PowerShell-Dateien, `Join-Path` mit mehr als zwei Teilen, einige PS7-/.NET-Core-only
+Bezeichner, `#Requires -Version 7` in `scripts/jea`). Operatoren wie `&&`, `||`, `??`, `?.` und der
+Ternary-Operator sind nur durch diesen 5.1-Lauf abgedeckt.
 
 ## 10. Testreihenfolge
 

@@ -26,6 +26,12 @@ public sealed class RequestStep : IVersioned
     /// <summary>Last error message. Must never contain secrets.</summary>
     public string? LastError { get; internal set; }
 
+    /// <summary>
+    /// Reason code of the latest outcome (DECISIONS X10), e.g. <c>ou-mismatch</c>; null after
+    /// Done. UI and tests check the code, never the text.
+    /// </summary>
+    public string? ReasonCode { get; internal set; }
+
     /// <summary>Step output (JSON). Must never contain secrets.</summary>
     public string? OutputJson { get; internal set; }
 

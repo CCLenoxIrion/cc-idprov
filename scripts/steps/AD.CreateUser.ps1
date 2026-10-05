@@ -1,4 +1,4 @@
-#Requires -Version 7.2
+﻿#Requires -Version 7.2
 <#
 .SYNOPSIS
     AD.CreateUser (SPEC §7): creates the disabled account in the area OU, or verifies and
@@ -13,8 +13,8 @@
 [CmdletBinding()]
 param()
 
-Import-Module (Join-Path $PSScriptRoot '..' 'common' 'Onboarding.Step.psm1') -Force
-. (Join-Path $PSScriptRoot '..' 'common' 'AdHelpers.ps1')
+Import-Module ([System.IO.Path]::Combine($PSScriptRoot, '..', 'common', 'Onboarding.Step.psm1')) -Force
+. ([System.IO.Path]::Combine($PSScriptRoot, '..', 'common', 'AdHelpers.ps1'))
 
 function Get-DesiredAttributes {
     param([Parameter(Mandatory)] [hashtable] $In)
@@ -51,7 +51,7 @@ function Invoke-AdCreateUser {
     $sam = [string] $id['sam']
     Assert-SamAccountName $sam
     if ([string]::IsNullOrWhiteSpace([string] $In['config']['requestIdAttribute'])) {
-        return New-StepResult -Context $Context -Status failed -Reason 'RequestIdAttribute ist nicht konfiguriert.'
+        return New-StepResult -Context $Context -Status failed -Code 'config-missing' -Reason 'RequestIdAttribute ist nicht konfiguriert.'
     }
 
     $desired = Get-DesiredAttributes -In $In
@@ -61,12 +61,12 @@ function Invoke-AdCreateUser {
 
     if ($null -ne $existing) {
         if (-not (Test-OwnAdAccount -User $existing -In $In)) {
-            return New-StepResult -Context $Context -Status needsInput `
+            return New-StepResult -Context $Context -Status needsInput -Code 'foreign-account' `
                 -Reason "Ein Konto mit sAMAccountName '$sam' existiert bereits und gehört nicht zu diesem Auftrag."
         }
 
-        if ((Get-ParentDn $existing.DistinguishedName) -ne [string] $id['ouDn']) {
-            return New-StepResult -Context $Context -Status needsInput -Reason 'Das Konto des Auftrags liegt in einer anderen OU als konfiguriert.' `
+        if (-not (Test-SameDn (Get-ParentDn ([string] $existing.DistinguishedName)) ([string] $id['ouDn']))) {
+            return New-StepResult -Context $Context -Status needsInput -Code 'ou-mismatch' -Reason 'Das Konto des Auftrags liegt in einer anderen OU als konfiguriert.' `
                 -DirectoryObjectGuid ([string] $existing.ObjectGUID)
         }
 
@@ -109,17 +109,17 @@ function Invoke-AdCreateUser {
     $upn = ConvertTo-LdapFilterValue ([string] $id['upn'])
     $clashFilter = "(|(userPrincipalName=$upn)(mail=$mail)(proxyAddresses=smtp:$mail))"
     if (Get-ADObject -LDAPFilter $clashFilter -ErrorAction Stop | Select-Object -First 1) {
-        return New-StepResult -Context $Context -Status needsInput -Reason 'UPN oder E-Mail-Adresse ist bereits einem anderen Objekt zugeordnet.'
+        return New-StepResult -Context $Context -Status needsInput -Code 'address-in-use' -Reason 'UPN oder E-Mail-Adresse ist bereits einem anderen Objekt zugeordnet.'
     }
 
     # The CN (display name) must be unique within the OU.
     $cnFilter = '(cn={0})' -f (ConvertTo-LdapFilterValue ([string] $id['displayName']))
     if (Get-ADObject -LDAPFilter $cnFilter -SearchBase ([string] $id['ouDn']) -SearchScope OneLevel -ErrorAction Stop | Select-Object -First 1) {
-        return New-StepResult -Context $Context -Status needsInput -Reason 'In der Ziel-OU existiert bereits ein Objekt mit diesem Anzeigenamen.'
+        return New-StepResult -Context $Context -Status needsInput -Code 'cn-in-use' -Reason 'In der Ziel-OU existiert bereits ein Objekt mit diesem Anzeigenamen.'
     }
 
     if ([string]::IsNullOrEmpty([string] $In['initialPassword'])) {
-        return New-StepResult -Context $Context -Status failed -Reason 'Kein Startpasswort vorhanden.'
+        return New-StepResult -Context $Context -Status failed -Code 'missing-password' -Reason 'Kein Startpasswort vorhanden.'
     }
 
     $securePassword = ConvertTo-SecureString -String ([string] $In['initialPassword']) -AsPlainText -Force

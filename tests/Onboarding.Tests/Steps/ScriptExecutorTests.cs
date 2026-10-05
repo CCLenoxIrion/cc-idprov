@@ -122,6 +122,33 @@ public sealed class ScriptExecutorTests
         Assert.Equal(expected, executor.Map(stdout).Kind);
     }
 
+    [Theory]
+    [InlineData("""{"status":"needsInput","code":"ou-mismatch","reason":"andere OU"}""", "ou-mismatch")]
+    [InlineData("""{"status":"failed","code":"invalid-sam","reason":"x"}""", "invalid-sam")]
+    [InlineData("""{"status":"failed","reason":"ohne Code"}""", "unspecified")]
+    [InlineData("""{"status":"failed","code":"Freitext mit Leerzeichen","reason":"x"}""", "invalid-code")]
+    [InlineData("""{"status":"exploded","code":"ou-mismatch"}""", "invalid-output")]
+    [InlineData("kein json", "invalid-output")]
+    [InlineData("""{"status":"done","code":"ignored"}""", null)]
+    public void Maps_reason_code(string stdout, string? expected)
+    {
+        var (executor, _) = Create(AdCreateUser, IntegrationMode.Real, stdout);
+
+        Assert.Equal(expected, executor.Map(stdout).Code);
+    }
+
+    [Fact]
+    public async Task Executor_failures_have_fixed_codes()
+    {
+        var (exit, _) = Create(AdEnable, IntegrationMode.Real, "", exitCode: 1);
+        var (timeout, _) = Create(AdEnable, IntegrationMode.Real, "", exitCode: -1, timedOut: true);
+        var (dryRun, _) = Create(AdEnable, IntegrationMode.DryRun, """{"status":"done","dryRun":true,"plannedActions":["Konto aktivieren"]}""");
+
+        Assert.Equal("script-exit-code", (await exit.ExecuteAsync(Context(), CancellationToken.None)).Code);
+        Assert.Equal("script-timeout", (await timeout.ExecuteAsync(Context(), CancellationToken.None)).Code);
+        Assert.Equal("dry-run", (await dryRun.ExecuteAsync(Context(), CancellationToken.None)).Code);
+    }
+
     [Fact]
     public void Tolerates_stray_lines_before_the_json()
     {

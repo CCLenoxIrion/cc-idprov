@@ -1,7 +1,9 @@
+﻿#Requires -Version 7.2
 <#
 .SYNOPSIS
     Manual test of a registered JEA endpoint (docs/DEPLOYMENT.md, "Manueller JEA-Testaufruf").
-    Runs on the worker host under the worker gMSA (scheduled task), never by the service itself.
+    Runs on the worker host (PowerShell 7) under the worker gMSA (scheduled task), never by the
+    service itself. Lives in scripts/tools, not scripts/jea: nothing here is deployed to DC01/CC01.
 
 .DESCRIPTION
     1. Opens a session and lists the visible commands (expected: exactly the endpoint functions
@@ -27,7 +29,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-Import-Module (Join-Path $PSScriptRoot '..' 'common' 'Onboarding.Step.psm1') -Force
+Import-Module ([System.IO.Path]::Combine($PSScriptRoot, '..', 'common', 'Onboarding.Step.psm1')) -Force
 
 $report = [ordered]@{
     computer        = $ComputerName

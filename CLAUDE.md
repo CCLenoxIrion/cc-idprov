@@ -40,8 +40,9 @@ Umbau dazukommt.
 | `src/Onboarding.Worker` | Worker Service / Windows-Dienst: `WorkerEngine` (Claim mit Concurrency-Token, ein Running-Step pro Auftrag, Aufträge parallel), Polling-Loop, Single-Instance-Lock. Entscheidungen über Status/Backoff/Timeout/Audit trifft `RequestWorkflow` (Core). |
 | `src/Onboarding.Steps` | `IStepExecutor` je Step-Key (`Execution/`), simulierte Fake-Welt mit Executors (`Fakes/World/`), Fake-Verzeichnis für das Web, Startpasswort-Verschlüsselung, Skript-Executor für DryRun/Real (`Scripts/`: pwsh, JSON über stdin/stdout, Timeout mit Kill), LDAP-Lese-Adapter für das Web (`Ldap/`). |
 | `tests/Onboarding.Tests` | xUnit. |
-| `scripts/steps`, `scripts/common` | PowerShell-7-Step-Skripte, je Step ein Skript, JSON über stdin/stdout, Secrets nur über stdin (DECISIONS X3). |
-| `scripts/jea` | JEA-Endpunkte `CC.Onboarding` (DC01) und `CC.Onboarding.Sync` (CC01): Module (PS 5.1), Role Capabilities, Registrierung, manueller Test (X5). |
+| `scripts/steps`, `scripts/common` | PowerShell-7-Step-Skripte, je Step ein Skript, JSON über stdin/stdout, Secrets nur über stdin (DECISIONS X3); jedes Ergebnis außer `done` mit festem Grund-Code (X10). |
+| `scripts/jea` | JEA-Endpunkte `CC.Onboarding` (DC01) und `CC.Onboarding.Sync` (CC01): Module, Role Capabilities, Registrierung (X5). Läuft unter **Windows PowerShell 5.1**: keine PS7-Syntax, `Join-Path` nur mit zwei Teilen, UTF-8 mit BOM. |
+| `scripts/tools` | Werkzeuge für den Worker-Host (pwsh 7), z. B. der manuelle JEA-Testaufruf. |
 | `scripts/tests` | Pester-5-Tests mit gemockten Cmdlets; `Stubs.ps1` wirft bei vergessenem Mock. |
 | `docs/DEPLOYMENT.md` | Checkliste für Rechte, JEA-Registrierung, Dienste und Testreihenfolge. |
 

@@ -1,4 +1,4 @@
-#Requires -Version 7.2
+﻿#Requires -Version 7.2
 <#
 .SYNOPSIS
     Home.Folder (SPEC §7): calls New-OnbHomeFolder on the JEA endpoint of the home server (DECISIONS X5).
@@ -7,7 +7,7 @@
 [CmdletBinding()]
 param()
 
-Import-Module (Join-Path $PSScriptRoot '..' 'common' 'Onboarding.Step.psm1') -Force
+Import-Module ([System.IO.Path]::Combine($PSScriptRoot, '..', 'common', 'Onboarding.Step.psm1')) -Force
 
 function Invoke-HomeFolder {
     param(

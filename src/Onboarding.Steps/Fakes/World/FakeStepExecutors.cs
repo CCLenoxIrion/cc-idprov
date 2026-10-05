@@ -28,13 +28,13 @@ public abstract class FakeStepExecutor(FakeWorld world) : IStepExecutor
         switch (fault?.Mode)
         {
             case FakeFaultMode.Fail:
-                return StepOutcome.Failed(fault.Message);
+                return StepOutcome.Failed(fault.Message, "injected-fault");
             case FakeFaultMode.Wait:
-                return StepOutcome.Waiting(fault.Message);
+                return StepOutcome.Waiting(fault.Message, "injected-fault");
             case FakeFaultMode.NeedsInput:
-                return StepOutcome.NeedsInput(fault.Message);
+                return StepOutcome.NeedsInput(fault.Message, "injected-fault");
             case FakeFaultMode.ManualTask:
-                return StepOutcome.ManualTask(fault.Message);
+                return StepOutcome.ManualTask(fault.Message, "injected-fault");
             case FakeFaultMode.Throw:
                 throw new InvalidOperationException(fault.Message);
             case FakeFaultMode.Hang:
@@ -100,7 +100,7 @@ public sealed class FakeAdCreateUser(FakeWorld world) : FakeStepExecutor(world)
         var global = context.Snapshot.Global;
         if (string.IsNullOrWhiteSpace(global.RequestIdAttribute))
         {
-            return StepOutcome.Failed("RequestIdAttribute ist nicht konfiguriert.");
+            return StepOutcome.Failed("RequestIdAttribute ist nicht konfiguriert.", "config-missing");
         }
 
         var desired = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
@@ -132,7 +132,7 @@ public sealed class FakeAdCreateUser(FakeWorld world) : FakeStepExecutor(world)
             if (OwnAccount(context) is null)
             {
                 return StepOutcome.NeedsInput(
-                    $"Ein Konto mit sAMAccountName '{identity.SamAccountName}' existiert bereits und gehört nicht zu diesem Auftrag.");
+                    $"Ein Konto mit sAMAccountName '{identity.SamAccountName}' existiert bereits und gehört nicht zu diesem Auftrag.", "foreign-account");
             }
 
             // Idempotency check compares all attributes, not only existence (SPEC §7).
@@ -156,7 +156,7 @@ public sealed class FakeAdCreateUser(FakeWorld world) : FakeStepExecutor(world)
 
         if (context.GetInitialPassword() is not { Length: > 0 })
         {
-            return StepOutcome.Failed("Kein Startpasswort vorhanden.");
+            return StepOutcome.Failed("Kein Startpasswort vorhanden.", "missing-password");
         }
 
         var user = new FakeAdUser
@@ -188,7 +188,7 @@ public sealed class FakeAdGroups(FakeWorld world) : FakeStepExecutor(world)
     {
         if (OwnAccount(context) is not { } user)
         {
-            return StepOutcome.Failed("Konto nicht gefunden.");
+            return StepOutcome.Failed("Konto nicht gefunden.", "account-not-found");
         }
 
         var missing = context.Snapshot.Department.AdGroups.Where(g => !user.Groups.Contains(g)).ToList();
@@ -231,7 +231,7 @@ public sealed class FakeHomeShare(FakeWorld world) : FakeStepExecutor(world)
         var path = $"{home.LocalRoot.TrimEnd('\\')}\\{Sam(context)}";
         if (!World.HomeFolders.ContainsKey(path))
         {
-            return StepOutcome.Failed("Home-Ordner fehlt.");
+            return StepOutcome.Failed("Home-Ordner fehlt.", "home-folder-missing");
         }
 
         var name = StepValues.Render(home.ShareNamePattern, context);
@@ -239,7 +239,7 @@ public sealed class FakeHomeShare(FakeWorld world) : FakeStepExecutor(world)
         {
             return existing == path
                 ? StepOutcome.Done("Freigabe existiert bereits.", Json(new { Share = name }))
-                : StepOutcome.NeedsInput($"Freigabe '{name}' existiert bereits mit anderem Pfad.");
+                : StepOutcome.NeedsInput($"Freigabe '{name}' existiert bereits mit anderem Pfad.", "share-path-mismatch");
         }
 
         World.Shares[name] = path;
@@ -269,7 +269,7 @@ public sealed class FakeLogonScript(FakeWorld world) : FakeStepExecutor(world)
             {
                 return StepOutcome.NeedsInput(
                     $"{file.Path} existiert mit anderem Inhalt (SHA-256 {existingHash}, erwartet {file.Sha256}); " +
-                    "Datei wurde manuell angelegt oder geändert. Überschreiben nur per Admin-Aktion.");
+                    "Datei wurde manuell angelegt oder geändert. Überschreiben nur per Admin-Aktion.", "logon-script-modified");
             }
         }
 
@@ -290,12 +290,12 @@ public sealed class FakeSync(FakeWorld world, string stepKey) : FakeStepExecutor
     {
         if (World.Next($"busy|{StepKey}|{Sam(context)}") <= World.Options.SyncBusyCount)
         {
-            return StepOutcome.Waiting("Synchronisierung läuft bereits (busy).");
+            return StepOutcome.Waiting("Synchronisierung läuft bereits (busy).", "sync-busy");
         }
 
         if (OwnAccount(context) is not { } user)
         {
-            return StepOutcome.Failed("Konto nicht gefunden.");
+            return StepOutcome.Failed("Konto nicht gefunden.", "account-not-found");
         }
 
         if (!World.CloudUsers.TryGetValue(Upn(context), out var cloud))
@@ -316,7 +316,7 @@ public sealed class FakeEntraWaitUser(FakeWorld world) : FakeStepExecutor(world)
 
     protected override StepOutcome Execute(StepContext context) =>
         CloudUser(context) is null || StillDelayed(StepKey, context, World.Options.EntraUserDelayChecks)
-            ? StepOutcome.Waiting("Benutzer in Entra noch nicht sichtbar.")
+            ? StepOutcome.Waiting("Benutzer in Entra noch nicht sichtbar.", "entra-user-pending")
             : StepOutcome.Done("Benutzer in Entra gefunden.");
 }
 
@@ -328,7 +328,7 @@ public sealed class FakeEntraUsageLocation(FakeWorld world) : FakeStepExecutor(w
     {
         if (CloudUser(context) is not { } cloud)
         {
-            return StepOutcome.Failed("Benutzer in Entra nicht gefunden.");
+            return StepOutcome.Failed("Benutzer in Entra nicht gefunden.", "entra-user-not-found");
         }
 
         var location = context.Snapshot.Global.UsageLocation;
@@ -351,19 +351,19 @@ public sealed class FakeEntraAssignLicense(FakeWorld world) : FakeStepExecutor(w
     {
         if (context.Snapshot.Global.LicenseMode == LicenseMode.Group)
         {
-            return StepOutcome.Skipped("LicenseMode = Group.");
+            return StepOutcome.Skipped("LicenseMode = Group.", "license-mode-group");
         }
 
         if (CloudUser(context) is not { UsageLocation: not null } cloud)
         {
-            return StepOutcome.Failed("Benutzer ohne usageLocation.");
+            return StepOutcome.Failed("Benutzer ohne usageLocation.", "usage-location-missing");
         }
 
         var missing = StepValues.Skus(context).Where(s => !cloud.Licenses.Contains(s)).ToList();
         var unavailable = missing.Where(s => World.FreeLicenses.GetValueOrDefault(s) <= 0).ToList();
         if (unavailable.Count > 0)
         {
-            return StepOutcome.Failed($"Keine freien Lizenzen für {string.Join(", ", unavailable)}.");
+            return StepOutcome.Failed($"Keine freien Lizenzen für {string.Join(", ", unavailable)}.", "no-free-license");
         }
 
         foreach (var sku in missing)
@@ -387,11 +387,11 @@ public sealed class FakeEntraWaitLicense(FakeWorld world) : FakeStepExecutor(wor
         var expected = context.Snapshot.Global.LicenseMode == LicenseMode.Direct ? StepValues.Skus(context) : [];
         if (CloudUser(context) is not { } cloud || expected.Any(s => !cloud.Licenses.Contains(s)))
         {
-            return StepOutcome.Failed("Lizenzen sind nicht zugewiesen.");
+            return StepOutcome.Failed("Lizenzen sind nicht zugewiesen.", "license-not-assigned");
         }
 
         return StillDelayed(StepKey, context, World.Options.LicenseDelayChecks)
-            ? StepOutcome.Waiting("Lizenz noch nicht aktiv.")
+            ? StepOutcome.Waiting("Lizenz noch nicht aktiv.", "license-pending")
             : StepOutcome.Done("Lizenzen aktiv.");
     }
 }
@@ -404,12 +404,12 @@ public sealed class FakeExoWaitMailbox(FakeWorld world) : FakeStepExecutor(world
     {
         if (CloudUser(context) is not { } cloud)
         {
-            return StepOutcome.Failed("Benutzer in Entra nicht gefunden.");
+            return StepOutcome.Failed("Benutzer in Entra nicht gefunden.", "entra-user-not-found");
         }
 
         if (!cloud.HasMailbox && StillDelayed(StepKey, context, World.Options.MailboxDelayChecks))
         {
-            return StepOutcome.Waiting("Postfach noch nicht bereitgestellt.");
+            return StepOutcome.Waiting("Postfach noch nicht bereitgestellt.", "mailbox-pending");
         }
 
         cloud.HasMailbox = true;
@@ -425,7 +425,7 @@ public sealed class FakeExoDisableNewOutlook(FakeWorld world) : FakeStepExecutor
     {
         if (CloudUser(context) is not { HasMailbox: true } cloud)
         {
-            return StepOutcome.Failed("Postfach nicht gefunden.");
+            return StepOutcome.Failed("Postfach nicht gefunden.", "mailbox-not-found");
         }
 
         var desired = context.Snapshot.Global.OneWinNativeOutlookEnabled;
@@ -448,7 +448,7 @@ public sealed class FakeExoSharedMailboxes(FakeWorld world) : FakeStepExecutor(w
     {
         if (CloudUser(context) is not { HasMailbox: true } cloud)
         {
-            return StepOutcome.Failed("Postfach nicht gefunden.");
+            return StepOutcome.Failed("Postfach nicht gefunden.", "mailbox-not-found");
         }
 
         var added = new List<string>();
@@ -484,12 +484,12 @@ public sealed class FakeTeamsWaitUser(FakeWorld world) : FakeStepExecutor(world)
     {
         if (CloudUser(context) is not { } cloud)
         {
-            return StepOutcome.Failed("Benutzer in Entra nicht gefunden.");
+            return StepOutcome.Failed("Benutzer in Entra nicht gefunden.", "entra-user-not-found");
         }
 
         if (!cloud.TeamsUser && StillDelayed(StepKey, context, World.Options.TeamsUserDelayChecks))
         {
-            return StepOutcome.Waiting("Teams-Benutzer mit Phone-Plan noch nicht verfügbar.");
+            return StepOutcome.Waiting("Teams-Benutzer mit Phone-Plan noch nicht verfügbar.", "teams-user-pending");
         }
 
         cloud.TeamsUser = true;
@@ -506,12 +506,12 @@ public sealed class FakeTeamsPhone(FakeWorld world) : FakeStepExecutor(world)
         var number = context.Identity.PhoneE164;
         if (number is null)
         {
-            return StepOutcome.Skipped("Keine Durchwahl.");
+            return StepOutcome.Skipped("Keine Durchwahl.", "no-extension");
         }
 
         if (CloudUser(context) is not { TeamsUser: true } cloud)
         {
-            return StepOutcome.Failed("Teams-Benutzer nicht gefunden.");
+            return StepOutcome.Failed("Teams-Benutzer nicht gefunden.", "teams-user-not-found");
         }
 
         if (cloud.PhoneNumber == number)
@@ -521,7 +521,7 @@ public sealed class FakeTeamsPhone(FakeWorld world) : FakeStepExecutor(world)
 
         if (World.CloudUsers.Values.Any(u => u != cloud && u.PhoneNumber == number))
         {
-            return StepOutcome.Failed($"Nummer {number} ist bereits einem anderen Benutzer zugewiesen.");
+            return StepOutcome.Failed($"Nummer {number} ist bereits einem anderen Benutzer zugewiesen.", "number-in-use");
         }
 
         cloud.PhoneNumber = number;
@@ -544,7 +544,7 @@ public sealed class FakeTeamsSetting(
     {
         if (CloudUser(context) is not { PhoneNumber: not null } cloud)
         {
-            return StepOutcome.Failed("Keine Nummer zugewiesen.");
+            return StepOutcome.Failed("Keine Nummer zugewiesen.", "number-not-assigned");
         }
 
         var value = desired(context);
@@ -567,7 +567,7 @@ public sealed class FakeAdEnable(FakeWorld world) : FakeStepExecutor(world)
     {
         if (OwnAccount(context) is not { } user)
         {
-            return StepOutcome.Failed("Konto nicht gefunden.");
+            return StepOutcome.Failed("Konto nicht gefunden.", "account-not-found");
         }
 
         if (user.Enabled)
@@ -594,7 +594,7 @@ public sealed class FakeEntraWaitEnabled(FakeWorld world) : FakeStepExecutor(wor
         }
 
         return CloudUser(context) is not { AccountEnabled: true } || StillDelayed(StepKey, context, World.Options.EnabledDelayChecks)
-            ? StepOutcome.Waiting("accountEnabled in Entra noch false.")
+            ? StepOutcome.Waiting("accountEnabled in Entra noch false.", "entra-enable-pending")
             : StepOutcome.Done("accountEnabled = true in Entra.");
     }
 }

@@ -1,4 +1,4 @@
-@{
+﻿@{
     RootModule        = 'CCOnboardingSync.psm1'
     ModuleVersion     = '1.0.0'
     GUID              = '3c9b5e17-6d2a-4f80-b4c1-9e8a7d6f5b03'

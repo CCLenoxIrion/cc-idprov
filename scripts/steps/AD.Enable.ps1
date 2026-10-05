@@ -1,4 +1,4 @@
-#Requires -Version 7.2
+﻿#Requires -Version 7.2
 <#
 .SYNOPSIS
     AD.Enable (SPEC §7): enables the request's own account on the entry date.
@@ -6,8 +6,8 @@
 [CmdletBinding()]
 param()
 
-Import-Module (Join-Path $PSScriptRoot '..' 'common' 'Onboarding.Step.psm1') -Force
-. (Join-Path $PSScriptRoot '..' 'common' 'AdHelpers.ps1')
+Import-Module ([System.IO.Path]::Combine($PSScriptRoot, '..', 'common', 'Onboarding.Step.psm1')) -Force
+. ([System.IO.Path]::Combine($PSScriptRoot, '..', 'common', 'AdHelpers.ps1'))
 
 function Invoke-AdEnable {
     param(

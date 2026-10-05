@@ -71,6 +71,10 @@ public sealed class ScriptLogonScript
 public sealed class StepScriptOutput
 {
     public string Status { get; set; } = "";
+
+    /// <summary>Fixed reason code (DECISIONS X10); required for every status except done.</summary>
+    public string? Code { get; set; }
+
     public string? Reason { get; set; }
     public JsonElement? Output { get; set; }
     public Guid? DirectoryObjectGuid { get; set; }

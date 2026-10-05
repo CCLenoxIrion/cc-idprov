@@ -153,13 +153,13 @@ public sealed class WorkerEngine(
         catch (OperationCanceledException) when (!ct.IsCancellationRequested)
         {
             logger.ExecutionTimeout(claimed.StepKey, options.ExecutionTimeout);
-            return StepOutcome.Waiting($"Ausführung nach {options.ExecutionTimeout} abgebrochen; neuer Versuch folgt.");
+            return StepOutcome.Waiting($"Ausführung nach {options.ExecutionTimeout} abgebrochen; neuer Versuch folgt.", "execution-timeout");
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             // Only type and message, never the full exception (could contain arguments).
             logger.StepThrew(claimed.StepKey, ex.GetType().Name);
-            return StepOutcome.Failed($"Unerwarteter Fehler ({ex.GetType().Name}): {ex.Message}");
+            return StepOutcome.Failed($"Unerwarteter Fehler ({ex.GetType().Name}): {ex.Message}", "unexpected-error");
         }
     }
 

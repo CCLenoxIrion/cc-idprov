@@ -1,4 +1,4 @@
-# Session configuration "CC.Onboarding" on DC01 – template.
+﻿# Session configuration "CC.Onboarding" on DC01 – template.
 # Register-OnboardingJea.ps1 creates the real .pssc from these values via
 # New-PSSessionConfigurationFile; placeholders <...> are replaced by its parameters.
 @{

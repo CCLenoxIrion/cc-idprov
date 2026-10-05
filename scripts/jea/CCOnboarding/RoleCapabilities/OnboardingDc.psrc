@@ -1,4 +1,4 @@
-# Role capability for the worker gMSA on DC01 (endpoint "CC.Onboarding").
+﻿# Role capability for the worker gMSA on DC01 (endpoint "CC.Onboarding").
 # Only these three functions are visible; no cmdlets, no providers, no external commands.
 @{
     GUID             = '8a7e2c41-9f3d-4b6a-8c2e-1d5f7a9b3c02'

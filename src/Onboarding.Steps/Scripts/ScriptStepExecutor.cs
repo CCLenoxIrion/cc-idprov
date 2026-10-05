@@ -42,12 +42,12 @@ public sealed partial class ScriptStepExecutor(
 
         if (result.TimedOut)
         {
-            return StepOutcome.Waiting($"Skript nach {options.Timeout} abgebrochen; neuer Versuch folgt.");
+            return StepOutcome.Waiting($"Skript nach {options.Timeout} abgebrochen; neuer Versuch folgt.", "script-timeout");
         }
 
         if (result.ExitCode != 0)
         {
-            return StepOutcome.Failed($"Skript {StepKey} mit Exit-Code {result.ExitCode} beendet (Details im Worker-Log).");
+            return StepOutcome.Failed($"Skript {StepKey} mit Exit-Code {result.ExitCode} beendet (Details im Worker-Log).", "script-exit-code");
         }
 
         return Map(result.StandardOutput, input.InitialPassword);
@@ -68,7 +68,7 @@ public sealed partial class ScriptStepExecutor(
 
         if (output is null || string.IsNullOrWhiteSpace(output.Status))
         {
-            return StepOutcome.Failed($"Skript {StepKey} lieferte keine gültige JSON-Ausgabe.");
+            return StepOutcome.Failed($"Skript {StepKey} lieferte keine gültige JSON-Ausgabe.", "invalid-output");
         }
 
         var reason = Clean(output.Reason, secret);
@@ -81,19 +81,23 @@ public sealed partial class ScriptStepExecutor(
             var planned = output.PlannedActions.Select(a => Clean(a, secret)).Where(a => a is not null).ToList();
             if (planned.Count > 0 && output.Status is "done" or "needsInput")
             {
-                return StepOutcome.NeedsInput(Truncate("Dry-Run – würde: " + string.Join("; ", planned), MaxReasonLength));
+                return StepOutcome.NeedsInput(Truncate("Dry-Run – würde: " + string.Join("; ", planned), MaxReasonLength), "dry-run");
             }
         }
 
+        // Codes are never free text: a malformed one is replaced, a missing one marked (DECISIONS X10).
+        var code = string.IsNullOrEmpty(output.Code) ? "unspecified"
+            : ReasonCodes.IsValid(output.Code) ? output.Code
+            : "invalid-code";
         return output.Status switch
         {
             "done" => StepOutcome.Done(reason, outputJson, output.DirectoryObjectGuid),
-            "waiting" => StepOutcome.Waiting(reason ?? "Vorbedingung noch nicht erfüllt."),
-            "failed" => StepOutcome.Failed(reason ?? $"Skript {StepKey} meldet einen Fehler."),
-            "needsInput" => StepOutcome.NeedsInput(reason ?? "Eingabe erforderlich."),
-            "manualTask" => StepOutcome.ManualTask(reason ?? "Manuelle Aufgabe."),
-            "skipped" => StepOutcome.Skipped(reason ?? "Übersprungen."),
-            _ => StepOutcome.Failed($"Skript {StepKey} meldete unbekannten Status."),
+            "waiting" => StepOutcome.Waiting(reason ?? "Vorbedingung noch nicht erfüllt.", code),
+            "failed" => StepOutcome.Failed(reason ?? $"Skript {StepKey} meldet einen Fehler.", code),
+            "needsInput" => StepOutcome.NeedsInput(reason ?? "Eingabe erforderlich.", code),
+            "manualTask" => StepOutcome.ManualTask(reason ?? "Manuelle Aufgabe.", code),
+            "skipped" => StepOutcome.Skipped(reason ?? "Übersprungen.", code),
+            _ => StepOutcome.Failed($"Skript {StepKey} meldete unbekannten Status.", "invalid-output"),
         };
     }
 

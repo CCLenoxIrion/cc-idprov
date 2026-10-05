@@ -67,6 +67,7 @@ public sealed class OnboardingDbContext(DbContextOptions<OnboardingDbContext> op
             b.HasKey(s => s.Id);
             b.Property(s => s.Id).ValueGeneratedNever();
             b.Property(s => s.StepKey).HasMaxLength(64);
+            b.Property(s => s.ReasonCode).HasMaxLength(64);
             b.Property(s => s.Version).IsConcurrencyToken();
             b.HasIndex(s => new { s.RequestId, s.StepKey }).IsUnique();
             b.HasIndex(s => new { s.Status, s.NextAttemptAt });

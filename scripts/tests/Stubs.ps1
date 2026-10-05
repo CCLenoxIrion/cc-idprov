@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     Stub commands so Pester can mock AD/SMB/ADSync cmdlets on machines without these modules.
     Real modules (if installed) are not touched: stubs are only defined when missing.
@@ -40,6 +40,18 @@ namespace Microsoft.ActiveDirectory.Management {
     }
 }
 '@
+}
+
+function Invoke-StepHandler {
+    <# Runs a step handler like Invoke-StepMain does: an exception becomes a sanitized failed result. #>
+    param([scriptblock] $Handler, [hashtable] $In, $Context)
+    try {
+        & $Handler $In $Context
+    }
+    catch {
+        $safe = Get-SafeError $_
+        New-StepResult -Context $Context -Status failed -Code $safe.code -Reason $safe.reason
+    }
 }
 
 function New-TestStepInput {
