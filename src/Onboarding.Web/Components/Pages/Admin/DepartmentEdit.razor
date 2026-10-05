@@ -72,6 +72,10 @@
 </table>
 <button class="btn btn-sm btn-outline-secondary" @onclick="() => _department.SharedMailboxes.Add(new SharedMailboxConfig { FullAccess = true, AutoMapping = true })">Postfach hinzufügen</button>
 
+<h2 class="h5 mt-4">Zusätzliche Rechte auf dem Home-Ordner</h2>
+<p class="small text-muted mb-1">Ergänzen die globalen Rechte; bei gleichem Principal gilt der Eintrag der Abteilung.</p>
+<HomeAceEditor Aces="_department.HomeAdditionalAces" TestId="department-home-aces" />
+
 <h2 class="h5 mt-4">Telefonie (greift nur, wenn eine Durchwahl angegeben ist)</h2>
 <div class="row g-2">
     <div class="col-md-3 form-check ms-2">

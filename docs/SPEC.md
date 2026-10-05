@@ -44,8 +44,8 @@ Abgeleitete Werte:
 ```
 [Web-UI: Auftrag + Admin-Config + Status]  --(DB)-->  [Worker-Dienst]
         läuft ohne Schreibrechte                      läuft unter gMSA
-                                                       ├─ AD (DC01/DC03)
-                                                       ├─ SMB/NTFS auf DC01
+                                                       ├─ AD (DC02/DC03/DC04)
+                                                       ├─ SMB/NTFS auf DC01 (Fileserver, Member-Server)
                                                        ├─ NETLOGON (\\dc03\NETLOGON)
                                                        ├─ Entra Connect (Delta-Sync)
                                                        ├─ Graph (Entra)
@@ -277,6 +277,7 @@ Die bestehenden interaktiven Skripte (`Read-Host`) werden in parametrisierte, ni
 - ~~Vier-Augen: jeder Auftrag braucht Freigabe durch `ITAdmin`, Antragsteller ≠ Freigebender.~~ **Überholt durch DECISIONS A1** (Selbstfreigabe mit Pflicht-Begründung, konfigurierbar).
 - gMSA mit **delegierten** Rechten: Benutzer anlegen/ändern nur in den konfigurierten OUs; Schreibrechte auf `F:\Home` und NETLOGON.
 - **Risiko, bewusst dokumentieren**: SMB-Shares auf einem DC anlegen erfordert lokale Adminrechte auf dem DC; Schreibrechte auf NETLOGON erlauben Code-Ausführung bei jeder Anmeldung. Das Dienstkonto ist damit faktisch Tier 0 und muss so behandelt werden (Host-Härtung, keine interaktive Anmeldung, Monitoring).
+  **Korrigiert (DECISIONS X5, Offen-Liste):** DC01 ist ein Fileserver (Member-Server), kein Domänencontroller (DCs: DC02, DC03, DC04). Home-Freigaben entstehen per JEA auf DC01; NETLOGON wird über einen eigenen JEA-Endpunkt auf DC03 geschrieben. Das Worker-gMSA ist auf keinem Server Admin.
 - CC01 ist Entra-Connect-Server und damit Tier 0 (das `MSOL_`-Konto hat Replikationsrechte auf das AD). Der Worker darf nicht auf einem Host laufen, auf dem Nicht-Admins Code ausführen können (Web-Apps, CI-Runner).
 - Audit-Log append-only, exportierbar (CSV), Aufbewahrung konfigurierbar.
 - Zertifikat der App-Registrierung: Laufzeit ≤ 1 Jahr, Ablaufwarnung im UI.

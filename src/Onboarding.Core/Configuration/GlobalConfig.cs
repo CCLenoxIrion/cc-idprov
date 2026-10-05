@@ -74,10 +74,19 @@ public sealed class HomeConfig
     public string LocalRoot { get; set; } = "";
     public string ShareNamePattern { get; set; } = "";
     public string UncPattern { get; set; } = "";
+
+    /// <summary>NTFS right of the user on the own home folder (DECISIONS X17).</summary>
+    public HomeRight UserRight { get; set; } = HomeRight.Modify;
+
+    /// <summary>Additional ACEs on every home folder; must also be in the endpoint allowlist on the file server.</summary>
+    public List<HomeAce> AdditionalAces { get; set; } = [];
 }
 
 public sealed class LogonScriptLocationConfig
 {
+    /// <summary>Domain controller with the JEA endpoint for logon scripts (separate from Home.Server).</summary>
+    public string Server { get; set; } = "";
+
     public string Path { get; set; } = "";
     public string FileNamePattern { get; set; } = "";
 }

@@ -129,10 +129,19 @@ function New-TestStepInput {
             requestIdAttribute = 'extensionAttribute15'
             groups             = @('GG-Vertrieb')
             jea                = @{
-                dcComputer            = 'DC01'
-                dcConfigurationName   = 'CC.Onboarding'
+                homeComputer           = 'DC01'
+                homeConfigurationName  = 'CC.Onboarding'
+                logonComputer          = 'DC03'
+                logonConfigurationName = 'CC.Onboarding.Logon'
                 syncComputer          = 'CC01'
                 syncConfigurationName = 'CC.Onboarding.Sync'
+            }
+            home               = @{
+                userRight      = 'Modify'
+                additionalAces = @(
+                    @{ principal = 'SYSTEM'; right = 'FullControl' }
+                    @{ principal = 'BUILTIN\Administrators'; right = 'FullControl' }
+                )
             }
         }
         logonScript         = @{

@@ -126,6 +126,13 @@ public sealed class DataTests : IDisposable
     [Fact]
     public async Task Config_changes_are_recorded_with_actor_old_and_new()
     {
+        long versionBefore;
+        await using (var db = Context())
+        {
+            // Migrations may already have bumped the version (keys added via json_set).
+            versionBefore = (await db.GlobalConfig.SingleAsync()).Version;
+        }
+
         await using (var db = Context("it.admin"))
         {
             var global = await db.GlobalConfig.SingleAsync();
@@ -155,7 +162,7 @@ public sealed class DataTests : IDisposable
             Assert.Contains("929678-{DW}", globalHistory.OldJson, StringComparison.Ordinal);
             Assert.Contains("929678 {DW}", globalHistory.NewJson, StringComparison.Ordinal);
 
-            Assert.Equal(1, (await db.GlobalConfig.SingleAsync()).Version);
+            Assert.Equal(versionBefore + 1, (await db.GlobalConfig.SingleAsync()).Version);
         }
     }
 

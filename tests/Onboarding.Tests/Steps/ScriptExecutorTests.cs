@@ -67,7 +67,16 @@ public sealed class ScriptExecutorTests
         Assert.Equal("lirion", root.GetProperty("identity").GetProperty("sam").GetString());
         Assert.Equal("Dr.", root.GetProperty("identity").GetProperty("additionalAttributes").GetProperty("extensionAttribute1").GetString());
         Assert.Equal("extensionAttribute15", root.GetProperty("config").GetProperty("requestIdAttribute").GetString());
-        Assert.Equal("DC01", root.GetProperty("config").GetProperty("jea").GetProperty("dcComputer").GetString());
+        var jea = root.GetProperty("config").GetProperty("jea");
+        Assert.Equal("DC01", jea.GetProperty("homeComputer").GetString());
+        Assert.Equal("CC.Onboarding", jea.GetProperty("homeConfigurationName").GetString());
+        Assert.Equal("DC03", jea.GetProperty("logonComputer").GetString());
+        Assert.Equal("CC.Onboarding.Logon", jea.GetProperty("logonConfigurationName").GetString());
+        var home = root.GetProperty("config").GetProperty("home");
+        Assert.Equal("Modify", home.GetProperty("userRight").GetString());
+        var ace = Assert.Single(home.GetProperty("additionalAces").EnumerateArray());
+        Assert.Equal("SYSTEM", ace.GetProperty("principal").GetString());
+        Assert.Equal("FullControl", ace.GetProperty("right").GetString());
         // No file system locations in the contract (only the JEA endpoint knows them).
         Assert.DoesNotContain("NETLOGON", runner.Stdin, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain(@"F:\\Home", runner.Stdin, StringComparison.OrdinalIgnoreCase);
@@ -271,6 +280,16 @@ public sealed class ScriptExecutorTests
             ["Integrations:Steps:Cloud"] = cloud,
             ["Integrations:Scripts:ScriptsDirectory"] = "scripts",
         }).GetRequiredService<StepExecutorRegistry>());
+    }
+
+    [Fact]
+    public void Legacy_dc_configuration_name_fails_at_startup()
+    {
+        var ex = Assert.Throws<InvalidOperationException>(() => Build(new Dictionary<string, string?>
+        {
+            ["Integrations:Scripts:DcConfigurationName"] = "CC.Onboarding",
+        }));
+        Assert.Contains("LogonConfigurationName", ex.Message, StringComparison.Ordinal);
     }
 
     [Fact]

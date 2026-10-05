@@ -2,7 +2,8 @@
 <#
 .SYNOPSIS
     Logon.Script (SPEC §4.4, §7): writes the logon script via Set-OnbLogonScript on the JEA
-    endpoint of DC01 (local NETLOGON, replicated by DFSR).
+    endpoint "CC.Onboarding.Logon" of the domain controller GlobalConfig.LogonScript.Server
+    (local NETLOGON, replicated by DFSR).
 
 .NOTES
     The bytes come from the C# generator (byte-identical to the UI preview, AK 3) together with
@@ -28,7 +29,7 @@ function Invoke-LogonScript {
     }
 
     $jea = $In['config']['jea']
-    $result = Invoke-JeaFunction -ComputerName ([string] $jea['dcComputer']) -ConfigurationName ([string] $jea['dcConfigurationName']) `
+    $result = Invoke-JeaFunction -ComputerName ([string] $jea['logonComputer']) -ConfigurationName ([string] $jea['logonConfigurationName']) `
         -FunctionName 'Set-OnbLogonScript' -Parameters @{
             Sam           = $sam
             ContentBase64 = [string] $logon['contentBase64']

@@ -1,0 +1,9 @@
+﻿# Role capability for the worker gMSA on the domain controller DC03 (endpoint "CC.Onboarding.Logon").
+# Exactly one visible function; no cmdlets, no providers, no external commands.
+@{
+    GUID             = 'e6c1d8a2-4b7f-4c93-8d05-2f9a6b1e3c47'
+    Author           = 'CleanControlling IT'
+    Description      = 'Onboarding: Anmeldeskript in NETLOGON'
+    ModulesToImport  = @('CCOnboardingLogon')
+    VisibleFunctions = @('Set-OnbLogonScript')
+}

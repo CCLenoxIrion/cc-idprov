@@ -137,6 +137,13 @@ public static class IntegrationRegistration
                 $"Integrations:Steps:Cloud '{cloud}' requires Integrations:Steps:OnPrem DryRun or Real (a fake AD account never reaches Entra).");
         }
 
+        if (configuration["Integrations:Scripts:DcConfigurationName"] is not null)
+        {
+            // DC01 is a file server, logon scripts moved to their own endpoint on a DC (DECISIONS X5).
+            throw new InvalidOperationException(
+                "Integrations:Scripts:DcConfigurationName is no longer supported. Use HomeConfigurationName and LogonConfigurationName.");
+        }
+
         var worldOptions = configuration.GetSection("FakeWorld").Get<FakeWorldOptions>() ?? new FakeWorldOptions();
         worldOptions.DetachedFromOnPrem = onPrem != IntegrationMode.Fake;
         var scriptOptions = configuration.GetSection("Integrations:Scripts").Get<ScriptOptions>() ?? new ScriptOptions();

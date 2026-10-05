@@ -10,18 +10,40 @@ BeforeAll {
 }
 
 Describe 'Home.Folder / Home.Share' {
-    It 'passes only the sam (no paths) to <Function>' -TestCases @(
-        @{ Function = 'New-OnbHomeFolder'; Handler = 'Invoke-HomeFolder' }
-        @{ Function = 'New-OnbHomeShare'; Handler = 'Invoke-HomeShare' }
-    ) {
+    It 'Home.Share passes only the sam (no paths) to the file server endpoint' {
         Mock Invoke-JeaFunction { [pscustomobject]@{ status = 'done'; reason = 'ok'; plannedActions = @(); output = [pscustomobject]@{} } }
-        $result = & $Handler (New-TestStepInput -Step 'Home.Folder') (New-StepContext -DryRun $false)
+        $result = Invoke-HomeShare (New-TestStepInput -Step 'Home.Share') (New-StepContext -DryRun $false)
 
         $result.status | Should -Be 'done'
         Should -Invoke Invoke-JeaFunction -Times 1 -Exactly -ParameterFilter {
-            $FunctionName -eq $Function -and $ComputerName -eq 'DC01' -and $ConfigurationName -eq 'CC.Onboarding' -and
+            $FunctionName -eq 'New-OnbHomeShare' -and $ComputerName -eq 'DC01' -and $ConfigurationName -eq 'CC.Onboarding' -and
             @($Parameters.Keys | Sort-Object) -join ',' -eq 'DryRun,Sam' -and $Parameters['Sam'] -eq 'lirion'
         }
+    }
+
+    It 'Home.Folder passes sam, user right and ACEs as Principal=Right, no paths' {
+        Mock Invoke-JeaFunction { [pscustomobject]@{ status = 'done'; reason = 'ok'; plannedActions = @(); output = [pscustomobject]@{} } }
+        $in = New-TestStepInput -Step 'Home.Folder' -Force
+        $in['config']['home']['userRight'] = 'FullControl'
+        $result = Invoke-HomeFolder $in (New-StepContext -DryRun $false)
+
+        $result.status | Should -Be 'done'
+        Should -Invoke Invoke-JeaFunction -Times 1 -Exactly -ParameterFilter {
+            $FunctionName -eq 'New-OnbHomeFolder' -and $ComputerName -eq 'DC01' -and $ConfigurationName -eq 'CC.Onboarding' -and
+            @($Parameters.Keys | Sort-Object) -join ',' -eq 'AdditionalAces,DryRun,Force,Sam,UserRight' -and
+            $Parameters['UserRight'] -eq 'FullControl' -and $Parameters['Force'] -eq $true -and
+            (@($Parameters['AdditionalAces']) -join '|') -eq 'SYSTEM=FullControl|BUILTIN\Administrators=FullControl'
+        }
+    }
+
+    It 'Home.Folder without home ACL configuration → failed config-missing before the remote call' {
+        Mock Invoke-JeaFunction { throw 'should not be called' }
+        $in = New-TestStepInput -Step 'Home.Folder'
+        $in['config']['home'] = $null
+        $result = Invoke-StepHandler ${function:Invoke-HomeFolder} $in (New-StepContext -DryRun $false)
+        $result.status | Should -Be 'failed'
+        $result.code | Should -Be 'config-missing'
+        Should -Invoke Invoke-JeaFunction -Times 0 -Exactly
     }
 
     It 'dry-run is forwarded and planned actions are returned' {
@@ -67,7 +89,8 @@ Describe 'Logon.Script' {
         $result.status | Should -Be 'needsInput'
         $result.code | Should -Be 'logon-script-modified'
         Should -Invoke Invoke-JeaFunction -ParameterFilter {
-            $FunctionName -eq 'Set-OnbLogonScript' -and $Parameters['Force'] -eq $true -and $Parameters['Sha256'] -eq ('a' * 64) -and
+            $FunctionName -eq 'Set-OnbLogonScript' -and $ComputerName -eq 'DC03' -and $ConfigurationName -eq 'CC.Onboarding.Logon' -and
+            $Parameters['Force'] -eq $true -and $Parameters['Sha256'] -eq ('a' * 64) -and
             -not $Parameters.ContainsKey('Path')
         }
     }

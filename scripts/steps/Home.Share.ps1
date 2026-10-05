@@ -18,7 +18,7 @@ function Invoke-HomeShare {
     $sam = [string] $In['identity']['sam']
     Assert-SamAccountName $sam
     $jea = $In['config']['jea']
-    $result = Invoke-JeaFunction -ComputerName ([string] $jea['dcComputer']) -ConfigurationName ([string] $jea['dcConfigurationName']) `
+    $result = Invoke-JeaFunction -ComputerName ([string] $jea['homeComputer']) -ConfigurationName ([string] $jea['homeConfigurationName']) `
         -FunctionName 'New-OnbHomeShare' -Parameters @{ Sam = $sam; DryRun = [bool] $Context.DryRun }
     return ConvertFrom-JeaResult -Context $Context -JeaResult $result
 }

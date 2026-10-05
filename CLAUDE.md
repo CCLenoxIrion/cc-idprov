@@ -41,7 +41,7 @@ Umbau dazukommt.
 | `src/Onboarding.Steps` | `IStepExecutor` je Step-Key (`Execution/`), simulierte Fake-Welt mit Executors (`Fakes/World/`), Fake-Verzeichnis für das Web, Startpasswort-Verschlüsselung, Skript-Executor für DryRun/Real (`Scripts/`: pwsh, JSON über stdin/stdout, Timeout mit Kill, Cloud-Optionen), LDAP-Lese-Adapter (`Ldap/`) und Graph-Lese-Adapter (`Graph/`) für das Web, Zertifikats-Ablaufprüfung (`Security/`). |
 | `tests/Onboarding.Tests` | xUnit. |
 | `scripts/steps`, `scripts/common` | PowerShell-7-Step-Skripte (On-Prem und Cloud, `CloudHelpers.ps1`), je Step ein Skript, JSON über stdin/stdout, Secrets nur über stdin (DECISIONS X3); jedes Ergebnis außer `done` mit festem Grund-Code (X10). |
-| `scripts/jea` | JEA-Endpunkte `CC.Onboarding` (DC01) und `CC.Onboarding.Sync` (CC01): Module, Role Capabilities, Registrierung (X5). Läuft unter **Windows PowerShell 5.1**: keine PS7-Syntax, `Join-Path` nur mit zwei Teilen, UTF-8 mit BOM. |
+| `scripts/jea` | JEA-Endpunkte `CC.Onboarding` (DC01 = Fileserver, Home-Ordner/-Freigabe, NTFS-Allowlist X17), `CC.Onboarding.Logon` (DC03, Anmeldeskripte, gMSA) und `CC.Onboarding.Sync` (CC01): Module, Role Capabilities, Registrierung (X5). Läuft unter **Windows PowerShell 5.1**: keine PS7-Syntax, `Join-Path` nur mit zwei Teilen, UTF-8 mit BOM. |
 | `scripts/tools` | Werkzeuge für den Worker-Host (pwsh 7), z. B. der manuelle JEA-Testaufruf. |
 | `scripts/tests` | Pester-5-Tests mit gemockten Cmdlets; `Stubs.ps1` wirft bei vergessenem Mock. |
 | `docs/DEPLOYMENT.md` | Checkliste für Rechte, JEA-Registrierung, Dienste und Testreihenfolge. |
@@ -80,7 +80,7 @@ Development), `AzureAd` (TenantId/ClientId), `Integrations:Read:Directory` (`Fak
 `Web:CertificateWarningDays`, `SecretProtection:Mode` (`Certificate` | `DevelopmentPem`).
 
 Konfiguration Worker: `Integrations:Steps:OnPrem` / `:Cloud` (`Fake` | `DryRun` | `Real`; Cloud echt nur mit
-On-Prem echt), `Integrations:Scripts` (PwshPath, ScriptsDirectory, Timeout, TimeoutOverrides, JEA-Endpunktnamen),
+On-Prem echt), `Integrations:Scripts` (PwshPath, ScriptsDirectory, Timeout, TimeoutOverrides, JEA-Endpunktnamen Home/Logon/Sync),
 `Integrations:Cloud` (TenantId, AppId, CertificateThumbprint, ExchangeOrganization, ManualSteps),
 `Worker:ExecutionTimeout` (> längster Skript-Timeout). Freigaberegel: `GlobalConfig.ApprovalPolicy` (DECISIONS A1).
 

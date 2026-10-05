@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using Onboarding.Core.Configuration;
 using Onboarding.Core.Security;
 using Onboarding.Core.Steps;
 using Onboarding.Steps.Execution;
@@ -56,12 +57,32 @@ public sealed class ScriptConfig
     public required string RequestIdAttribute { get; init; }
     public required IReadOnlyList<string> Groups { get; init; }
     public required ScriptJeaConfig Jea { get; init; }
+
+    /// <summary>Home folder rights (X17); the file server endpoint accepts only allowlisted values.</summary>
+    public required ScriptHomeAcl Home { get; init; }
+}
+
+public sealed class ScriptHomeAcl
+{
+    public required string UserRight { get; init; }
+    public required IReadOnlyList<ScriptHomeAce> AdditionalAces { get; init; }
+}
+
+public sealed class ScriptHomeAce
+{
+    public required string Principal { get; init; }
+    public required string Right { get; init; }
 }
 
 public sealed class ScriptJeaConfig
 {
-    public required string DcComputer { get; init; }
-    public required string DcConfigurationName { get; init; }
+    /// <summary>File server with home folders and shares (GlobalConfig.Home.Server).</summary>
+    public required string HomeComputer { get; init; }
+    public required string HomeConfigurationName { get; init; }
+
+    /// <summary>Domain controller for logon scripts (GlobalConfig.LogonScript.Server).</summary>
+    public required string LogonComputer { get; init; }
+    public required string LogonConfigurationName { get; init; }
     public required string SyncComputer { get; init; }
     public required string SyncConfigurationName { get; init; }
 }
@@ -161,7 +182,8 @@ public sealed class ScriptOptions
     /// </summary>
     public Dictionary<string, TimeSpan> TimeoutOverrides { get; set; } = new(StringComparer.Ordinal);
 
-    public string DcConfigurationName { get; set; } = "CC.Onboarding";
+    public string HomeConfigurationName { get; set; } = "CC.Onboarding";
+    public string LogonConfigurationName { get; set; } = "CC.Onboarding.Logon";
     public string SyncConfigurationName { get; set; } = "CC.Onboarding.Sync";
 
     public TimeSpan TimeoutFor(string stepKey) =>
@@ -252,15 +274,28 @@ public static class StepScriptJson
                 Groups = context.Snapshot.Department.AdGroups,
                 Jea = new ScriptJeaConfig
                 {
-                    DcComputer = global.Home.Server,
-                    DcConfigurationName = options.DcConfigurationName,
+                    HomeComputer = global.Home.Server,
+                    HomeConfigurationName = options.HomeConfigurationName,
+                    LogonComputer = global.LogonScript.Server,
+                    LogonConfigurationName = options.LogonConfigurationName,
                     SyncComputer = global.EntraConnectServer,
                     SyncConfigurationName = options.SyncConfigurationName,
                 },
+                Home = BuildHome(context),
             },
             LogonScript = logon,
             Cloud = cloud is not null && StepGroups.GroupOf(stepKey) == StepGroups.Cloud ? BuildCloud(context, stepKey, cloud) : null,
             InitialPassword = password?.Reveal(),
+        };
+    }
+
+    private static ScriptHomeAcl BuildHome(StepContext context)
+    {
+        var acl = HomeAcl.Resolve(context.Snapshot.Global, context.Snapshot.Department);
+        return new ScriptHomeAcl
+        {
+            UserRight = acl.UserRight.ToString(),
+            AdditionalAces = acl.AdditionalAces.Select(a => new ScriptHomeAce { Principal = a.Principal, Right = a.Right.ToString() }).ToList(),
         };
     }
 

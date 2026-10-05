@@ -42,6 +42,13 @@ public static class ConfigValidator
         Required(errors, config.Home.LocalRoot, "Home-Stammverzeichnis");
         Template(errors, config.Home.ShareNamePattern, "Freigabename-Muster", required: true);
         Template(errors, config.Home.UncPattern, "UNC-Muster Home", required: true);
+        if (!Enum.IsDefined(config.Home.UserRight))
+        {
+            errors.Add("Benutzerrecht Home-Ordner ist ungültig.");
+        }
+
+        errors.AddRange(HomeAcl.Validate(config.Home.AdditionalAces, "Zusätzliche Home-Rechte"));
+        Required(errors, config.LogonScript.Server, "Server Anmeldeskripte");
         Required(errors, config.LogonScript.Path, "Pfad Anmeldeskripte");
         Template(errors, config.LogonScript.FileNamePattern, "Dateiname-Muster Anmeldeskript", required: true);
         Required(errors, config.EntraConnectServer, "Entra-Connect-Server");
@@ -111,6 +118,7 @@ public static class ConfigValidator
             }
         }
 
+        errors.AddRange(HomeAcl.Validate(department.HomeAdditionalAces, "Zusätzliche Home-Rechte der Abteilung"));
         var forward = department.Teams.UnansweredForward;
         if (forward.Enabled && (string.IsNullOrWhiteSpace(forward.Target) || string.IsNullOrWhiteSpace(forward.TargetType)))
         {

@@ -13,6 +13,9 @@ public sealed class DepartmentConfig : IVersioned
     public List<SharedMailboxConfig> SharedMailboxes { get; set; } = [];
     public LogonScriptTemplate LogonScript { get; set; } = new();
     public DepartmentTeamsConfig Teams { get; set; } = new();
+
+    /// <summary>Additional home folder ACEs of this department; win over global ones for the same principal (X17).</summary>
+    public List<HomeAce> HomeAdditionalAces { get; set; } = [];
     public long Version { get; set; }
 }
 

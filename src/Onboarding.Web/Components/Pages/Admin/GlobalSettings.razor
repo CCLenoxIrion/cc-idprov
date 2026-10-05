@@ -68,7 +68,7 @@
         <legend class="h5">Home und Anmeldeskript</legend>
         <div class="row">
             <div class="col">
-                <label class="form-label">Home-Server</label>
+                <label class="form-label">Home-Server (Fileserver)</label>
                 <input class="form-control mb-2" @bind="_settings.Home.Server" />
             </div>
             <div class="col">
@@ -80,6 +80,18 @@
         <input class="form-control mb-2 font-monospace" @bind="_settings.Home.ShareNamePattern" />
         <label class="form-label">UNC-Muster Home</label>
         <input class="form-control mb-2 font-monospace" @bind="_settings.Home.UncPattern" />
+        <label class="form-label">NTFS-Recht des Benutzers auf dem Home-Ordner</label>
+        <select class="form-select mb-2" @bind="_settings.Home.UserRight" data-testid="home-user-right">
+            @foreach (var right in Enum.GetValues<HomeRight>())
+            {
+                <option value="@right">@HomeAceEditor.Label(right)</option>
+            }
+        </select>
+        <div class="form-text mb-2">Vererbung am Home-Ordner ist aus, Besitzer laut Endpunkt-Konfiguration. „Ändern“ verhindert, dass Benutzer Rechte ändern.</div>
+        <label class="form-label">Zusätzliche Rechte auf jedem Home-Ordner</label>
+        <HomeAceEditor Aces="_settings.Home.AdditionalAces" TestId="global-home-aces" />
+        <label class="form-label">Server Anmeldeskripte (Domänencontroller mit JEA-Endpunkt)</label>
+        <input class="form-control mb-2" @bind="_settings.LogonScript.Server" data-testid="logon-server" />
         <label class="form-label">Pfad Anmeldeskripte</label>
         <input class="form-control mb-2 font-monospace" @bind="_settings.LogonScript.Path" />
         <label class="form-label">Dateiname-Muster Anmeldeskript</label>

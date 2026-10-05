@@ -14,16 +14,18 @@ Begriffe:
 | `<ONB-HOST>` | Server, auf dem Web und Worker laufen (DECISIONS B1: derselbe Host) |
 | `CC\svc-onboard$` | gMSA des Workers (schreibt in AD, ruft die JEA-Endpunkte auf) |
 | `CC\svc-onbweb$` | Dienstkonto des Web (nur lesend) |
-| `CC\svc-onbjea-dc$`, `CC\svc-onbjea-sync$` | optionale Endpunkt-gMSAs (Run-As-Variante b) |
-| DC01 | Home-Server und DC mit NETLOGON (`GlobalConfig.Home.Server`) |
+| `CC\svc-onbjea-logon$` | Endpunkt-gMSA auf DC03 (Pflicht, Run-As-Variante b) |
+| DC01 | **Fileserver (Member-Server, kein DC)** mit F:\Home und den Home-Freigaben (`GlobalConfig.Home.Server`) |
+| DC03 | Domänencontroller, auf dem die Anmeldeskripte in NETLOGON geschrieben werden (`GlobalConfig.LogonScript.Server`); DCs: DC02, DC03, DC04 |
 | CC01 | Entra-Connect-Server (`GlobalConfig.EntraConnectServer`) |
 
 ## 1. Rechte-Übersicht (Soll)
 
 | Identität | Darf | Darf ausdrücklich **nicht** |
 |---|---|---|
-| Worker-gMSA | Benutzer in den drei Bereichs-OUs anlegen und die Onboarding-Attribute schreiben (Delegation §3), Mitgliedschaften der konfigurierten Gruppen ändern, sich an den JEA-Endpunkten `CC.Onboarding` (DC01) und `CC.Onboarding.Sync` (CC01) anmelden | lokaler Admin auf DC01/CC01, Mitglied von `ADSyncOperators`, Schreibzugriff auf F:\Home, SMB oder NETLOGON |
-| Run-As-Konto DC01-Endpunkt | F:\Home (Ordner anlegen, ACL setzen), SMB-Freigaben anlegen, NETLOGON-Skriptordner schreiben | alles andere |
+| Worker-gMSA | Benutzer in den drei Bereichs-OUs anlegen und die Onboarding-Attribute schreiben (Delegation §3), Mitgliedschaften der konfigurierten Gruppen ändern, sich an den JEA-Endpunkten `CC.Onboarding` (DC01), `CC.Onboarding.Logon` (DC03) und `CC.Onboarding.Sync` (CC01) anmelden | lokaler Admin auf DC01/DC03/CC01, Mitglied von `ADSyncOperators`, Schreibzugriff auf F:\Home, SMB oder NETLOGON |
+| Run-As-Konto DC01-Endpunkt (Virtual Account) | lokaler Administrator auf dem Member-Server DC01: Home-Ordner anlegen, ACL/Besitzer setzen, SMB-Freigaben anlegen – begrenzt durch die drei sichtbaren Funktionen und die ACE-Allowlist | alles außerhalb dieser Funktionen |
+| Run-As-Konto DC03-Endpunkt (gMSA `svc-onbjea-logon$`) | Schreiben/Ändern nur im Ordner `SCRIPTS` unter SYSVOL auf DC03 | jede Admin-Gruppe, jedes andere Schreibrecht |
 | Run-As-Konto CC01-Endpunkt | Delta-Sync starten (`ADSyncOperators`) | alles andere |
 | Web-Konto | AD lesen (LDAP) | jedes Schreiben, JEA-Endpunkte, privater Schlüssel des Passwort-Zertifikats |
 | Worker-App-Registrierung (Cloud) | Graph: Benutzer lesen/`usageLocation` setzen, Lizenzen zuweisen, `subscribedSkus` lesen; EXO: Postfach-/Freigabepostfach-Rechte im Management Scope; Teams: Telefonie-Einstellungen (§11.2) | Gruppen schreiben (`GroupMember.ReadWrite.All` wird **nicht** vergeben), Verzeichnisrollen über die nötigen hinaus |
@@ -86,58 +88,67 @@ dsacls "%OU%" /I:S /G "%W%:CA;Reset Password;user"
 
 ## 4. JEA-Endpunkte (DECISIONS X5)
 
-Dateien: `scripts/jea/`. Die Endpunkte kennen alle Pfade selbst; der Worker übergibt nur die sam
-(und beim Anmeldeskript Base64-Inhalt + SHA-256).
+Dateien: `scripts/jea/`. Die Endpunkte kennen alle Pfade selbst; der Worker übergibt nur die sam,
+beim Home-Ordner zusätzlich das Benutzerrecht und die zusätzlichen Rechte (nur Werte aus der
+Allowlist, §4.1), beim Anmeldeskript Base64-Inhalt + SHA-256.
 
-### 4.1 Endpunkt-Konfiguration anpassen (DC01)
+| Endpunkt | Server | Modul | sichtbare Funktionen | Run-As |
+|---|---|---|---|---|
+| `CC.Onboarding` | DC01 (Fileserver, Member-Server) | `CCOnboarding` | `New-OnbHomeFolder`, `New-OnbHomeShare` | Virtual Account (lokaler Admin) |
+| `CC.Onboarding.Logon` | DC03 (Domänencontroller) | `CCOnboardingLogon` | `Set-OnbLogonScript` | eigenes gMSA `svc-onbjea-logon$`, **kein** Virtual Account |
+| `CC.Onboarding.Sync` | CC01 (Entra Connect) | `CCOnboardingSync` | `Start-OnbDeltaSync` | Virtual Account mit Gruppe `ADSyncOperators` |
 
-- [ ] `scripts/jea/CCOnboarding/OnboardingEndpoint.psd1` an die Umgebung anpassen. Die Werte
-  müssen mit der Global-Konfiguration im Admin-UI übereinstimmen:
+### 4.1 Endpunkt-Konfiguration anpassen
+
+- [ ] **DC01** – `scripts/jea/CCOnboarding/OnboardingEndpoint.psd1`; die Werte müssen zur
+  Global-Konfiguration im Admin-UI passen:
 
   | Schlüssel | muss passen zu |
   |---|---|
   | `HomeRoot` | `GlobalConfig.Home.LocalRoot` |
   | `ShareNamePattern` | `GlobalConfig.Home.ShareNamePattern` |
   | `NetbiosDomain` | `GlobalConfig.DomainNetBios` |
-  | `LogonFileNamePattern` | `GlobalConfig.LogonScript.FileNamePattern` |
-  | `LogonScriptDirectory` | lokaler Pfad hinter der NETLOGON-Freigabe: `(Get-SmbShare NETLOGON).Path` – **zu verifizieren** |
-  | `ShareFullAccess` | Vollzugriff auf Home-Freigaben neben dem Benutzer – an bestehender Freigabe prüfen (`Get-SmbShareAccess <sam>$`), **zu verifizieren** (SPEC §11) |
+  | `ShareFullAccess` | Vollzugriff auf Home-Freigaben neben dem Benutzer (Änderungsrecht). Bewusst strenger als der Bestand (Jeder = Vollzugriff), DECISIONS X18 |
+  | `HomeOwner` | Besitzer jedes Home-Ordners (Vererbung aus). **Zu verifizieren**: auf deutschem Windows heißt die Gruppe `VORDEFINIERT\Administratoren`; alternativ die SID `S-1-5-32-544` eintragen |
+  | `HomeUserRights` | erlaubte Werte für `GlobalConfig.Home.UserRight` (`Modify`, `FullControl`) |
+  | `HomeAceAllowlist` | **jeder** Principal aus `GlobalConfig.Home.AdditionalAces` und aus `HomeAdditionalAces` aller Abteilungen, jeweils mit den erlaubten Rechten |
 
-- [ ] Ändert jemand später die Global-Konfiguration (Home-Pfad, Freigabemuster, Skriptname),
-  muss diese Datei auf DC01 mitgezogen und das Modul neu registriert werden (§4.3).
+  Die Allowlist ist die Sicherheitsgrenze (DECISIONS X17): Der Endpunkt lehnt jeden Principal und
+  jedes Recht ab, das dort nicht steht (`ace-not-allowed`). Ein kompromittierter Worker kann also
+  keinem beliebigen Konto Vollzugriff geben. Neue Principals im Admin-UI ⇒ hier ergänzen und das
+  Modul neu registrieren (§4.3). Principals werden wie im Admin-UI geschrieben (Groß-/Kleinschreibung
+  egal); SIDs sind ebenfalls erlaubt.
+- [ ] **DC03** – `scripts/jea/CCOnboardingLogon/OnboardingLogonEndpoint.psd1`:
+  `LogonScriptDirectory = C:\Windows\SYSVOL\sysvol\CC.local\SCRIPTS` (verifiziert, DFSR-Status
+  „Eliminated“), `LogonFileNamePattern` passend zu `GlobalConfig.LogonScript.FileNamePattern`.
+- [ ] Admin-UI: `Home.Server = DC01`, `LogonScript.Server = DC03`.
 
-### 4.2 Run-As-Konto wählen
+### 4.2 Run-As-Konten
 
-JEA führt die Funktionen unter einem Run-As-Konto aus, nicht unter dem Worker-gMSA. Zwei Varianten:
-
-| | (a) Virtual Account + `RunAsVirtualAccountGroups` | (b) eigenes Endpunkt-gMSA (`GroupManagedServiceAccount`) |
+| Server | Run-As | Begründung |
 |---|---|---|
-| Einrichtung | keine Kontopflege; Rechte über eine Gruppe | gMSA anlegen, auf DC01/CC01 installieren, Rechte direkt vergeben |
-| DC01 | **Achtung:** Virtual Accounts sind auf DCs ohne Gruppenangabe **Domain Admins**. Mit `RunAsVirtualAccountGroups` ersetzt die Gruppe diese Mitgliedschaft – **zu verifizieren** (`whoami /groups` im Endpunkt). Auf DCs gibt es keine lokalen Gruppen, die Gruppe muss eine Domänengruppe sein. | Rechte genau auf F:\Home, SMB-Anlage, NETLOGON-Ordner; keine Admin-Gruppe nötig – **zu verifizieren**, ob `New-SmbShare` ohne lokale Admin-Rechte (bzw. auf DCs ohne Administrators/Server Operators) möglich ist |
-| CC01 | Gruppe `ADSyncOperators` (lokal) | gMSA Mitglied in `ADSyncOperators` |
-| Netzwerkzugriff | Virtual Account greift als Computerkonto ins Netz (hier nicht nötig, alles lokal) | als gMSA |
-| Nachvollziehbarkeit | Transcripts unter `C:\ProgramData\CCOnboarding\Transcripts`, Konto pro Sitzung neu | zusätzlich feste Identität in Sicherheitsprotokoll und ACLs |
+| DC01 (Member-Server) | Virtual Account (ohne `-RunAsGroup` lokaler Administrator) | Anlegen von SMB-Freigaben und Setzen des Besitzers braucht lokale Admin-Rechte; auf einem Member-Server ist das unkritisch. Eingeschränkt durch die zwei sichtbaren Funktionen und die Allowlist. |
+| DC03 (DC) | eigenes gMSA `svc-onbjea-logon$` | Ein Virtual Account wäre auf einem DC Domain Admin. Das gMSA bekommt nur Schreiben/Ändern auf `SCRIPTS` – keine Admin-Gruppe. `Register-OnboardingJea.ps1 -Role Logon` lehnt `-RunAs VirtualAccount` ab. |
+| CC01 | Virtual Account mit `-RunAsGroup ADSyncOperators` | nur Delta-Sync. |
 
-Empfehlung: **(b) auf DC01** (kein Risiko einer Domain-Admin-Sitzung), **(a) auf CC01**
-(einfach, `ADSyncOperators` ist lokal). Entscheidung und Test durch IT.
-
-Rechte des Run-As-Kontos auf DC01 (Variante b, sinngemäß für die Gruppe in a):
-
-- [ ] F:\Home: „Ordner erstellen“ und „Berechtigungen ändern“ auf `HomeRoot` (diese Ebene und
-  Unterordner), damit `New-OnbHomeFolder` Ordner anlegen und dem Benutzer „Ändern“ geben kann.
-- [ ] SMB: Freigaben anlegen und Freigabeberechtigungen setzen – **zu verifizieren**, welche
-  Mitgliedschaft dafür auf einem DC mindestens nötig ist.
-- [ ] NETLOGON: Schreiben/Ändern im `LogonScriptDirectory` (nicht im ganzen SYSVOL). DFSR
-  repliziert die Datei auf die übrigen DCs.
+- [ ] gMSA für DC03 anlegen: `New-ADServiceAccount svc-onbjea-logon -DNSHostName … -PrincipalsAllowedToRetrieveManagedPassword 'DC03$'`,
+  auf DC03 `Install-ADServiceAccount svc-onbjea-logon`.
+- [ ] Rechte nur auf den Skriptordner:
+  ```cmd
+  icacls "C:\Windows\SYSVOL\sysvol\CC.local\SCRIPTS" /grant "CC\svc-onbjea-logon$:(OI)(CI)M"
+  ```
+  **Zu verifizieren**, dass DFSR die Datei danach repliziert (Ordner liegt unter SYSVOL).
 
 ### 4.3 Registrieren
 
-Auf DC01 bzw. CC01 als Administrator, Windows PowerShell 5.1:
+Als Administrator auf dem jeweiligen Server, Windows PowerShell 5.1:
 
 ```powershell
-# DC01, Variante b
-.\Register-OnboardingJea.ps1 -Role Dc -WorkerGmsa 'CC\svc-onboard$' -RunAs Gmsa -EndpointGmsa 'CC\svc-onbjea-dc$'
-# CC01, Variante a
+# DC01 (Fileserver)
+.\Register-OnboardingJea.ps1 -Role Home -WorkerGmsa 'CC\svc-onboard$' -RunAs VirtualAccount
+# DC03 (Domänencontroller)
+.\Register-OnboardingJea.ps1 -Role Logon -WorkerGmsa 'CC\svc-onboard$' -RunAs Gmsa -EndpointGmsa 'CC\svc-onbjea-logon$'
+# CC01 (Entra Connect)
 .\Register-OnboardingJea.ps1 -Role Sync -WorkerGmsa 'CC\svc-onboard$' -RunAs VirtualAccount -RunAsGroup 'ADSyncOperators'
 ```
 
@@ -145,47 +156,65 @@ Auf DC01 bzw. CC01 als Administrator, Windows PowerShell 5.1:
   `.pssc` (`RestrictedRemoteServer`, `NoLanguage`, Transcripts), prüft sie mit
   `Test-PSSessionConfigurationFile` und registriert sie. Die `.pssc.template`-Dateien zeigen das
   Ergebnis zur Durchsicht.
-- [ ] Modulordner auf DC01/CC01: Schreibrechte nur Administratoren (wer das Modul ändert, ändert,
-  was der Endpunkt mit Run-As-Rechten ausführt).
-- [ ] Prüfen, welche Befehle das Worker-gMSA sieht (lokal, ohne Verbindung):
+- [ ] Ein früher auf DC01 registrierter Endpunkt mit `Set-OnbLogonScript` wird durch die neue
+  Registrierung ersetzt (gleicher Name `CC.Onboarding`, Rolle `OnboardingHome`).
+- [ ] Modulordner auf allen drei Servern: Schreibrechte nur Administratoren.
+- [ ] Sichtbare Befehle prüfen (lokal, ohne Verbindung):
   ```powershell
-  Get-PSSessionCapability -ConfigurationName CC.Onboarding -Username 'CC\svc-onboard$' | Select-Object Name
+  Get-PSSessionCapability -ConfigurationName CC.Onboarding -Username 'CC\svc-onboard$' | Select-Object Name        # DC01
+  Get-PSSessionCapability -ConfigurationName CC.Onboarding.Logon -Username 'CC\svc-onboard$' | Select-Object Name  # DC03
   ```
-  Erwartet: `New-OnbHomeFolder`, `New-OnbHomeShare`, `Set-OnbLogonScript` plus die
-  `RestrictedRemoteServer`-Standardbefehle (`Get-Command`, `Exit-PSSession`, …).
-- [ ] WinRM auf DC01 und CC01 aktiv (`Test-WSMan DC01` vom `<ONB-HOST>`), Firewall 5985 vom
+  Erwartet auf DC01 `New-OnbHomeFolder`, `New-OnbHomeShare`, auf DC03 nur `Set-OnbLogonScript`,
+  jeweils plus die `RestrictedRemoteServer`-Standardbefehle.
+- [ ] WinRM auf DC01, DC03 und CC01 aktiv (`Test-WSMan` vom `<ONB-HOST>`), Firewall 5985 vom
   `<ONB-HOST>`.
 
 ### 4.4 Manueller JEA-Testaufruf
 
 Der Worker ruft die Endpunkte per implizitem Remoting auf (`New-PSSession -ConfigurationName …`,
 `Import-PSSession -Prefix Remote`, lokaler Aufruf, Session im `finally` schließen). Dieser Weg ist
-**zu verifizieren** – genau das prüft `scripts/tools/Test-OnboardingJea.ps1` (PowerShell 7, Worker-Host;
-nicht Teil der Endpunkt-Dateien in `scripts/jea`) unter der Identität des Workers (ein gMSA kann sich nicht interaktiv anmelden, daher als geplante Aufgabe):
+**zu verifizieren** – genau das prüft `scripts/tools/Test-OnboardingJea.ps1` (PowerShell 7,
+Worker-Host; nicht Teil der Endpunkt-Dateien in `scripts/jea`) unter der Identität des Workers. Ein
+gMSA kann sich nicht interaktiv anmelden, daher als geplante Aufgabe:
 
 ```powershell
 $script = 'C:\Program Files\CCOnboarding\scripts\tools\Test-OnboardingJea.ps1'
 $action = New-ScheduledTaskAction -Execute 'C:\Program Files\PowerShell\7\pwsh.exe' `
-    -Argument "-NoProfile -NonInteractive -File `"$script`" -ComputerName DC01 -ConfigurationName CC.Onboarding -OutFile C:\Temp\jea-dc.json"
+    -Argument "-NoProfile -NonInteractive -File `"$script`" -ComputerName DC01 -ConfigurationName CC.Onboarding -OutFile C:\Temp\jea-dc01.json"
 $principal = New-ScheduledTaskPrincipal -UserId 'CC\svc-onboard$' -LogonType Password
 Register-ScheduledTask -TaskName 'Onboarding JEA-Test' -Action $action -Principal $principal
 Start-ScheduledTask -TaskName 'Onboarding JEA-Test'
 # warten, dann:
-Get-Content C:\Temp\jea-dc.json
+Get-Content C:\Temp\jea-dc01.json
 Unregister-ScheduledTask -TaskName 'Onboarding JEA-Test' -Confirm:$false
 ```
 
-Erwartung in `jea-dc.json`:
+Erwartung:
 
-- [ ] `identity` = `CC\svc-onboard$`; `visibleCommands` nur die drei Funktionen plus Standardbefehle.
-- [ ] Drei Dry-Run-Aufrufe mit `plannedActions` (für die Test-sam `jeatest` meldet
-  `New-OnbHomeFolder` ggf. `waiting`, weil das Konto nicht existiert – das ist korrekt).
-- [ ] Beide Negativ-Aufrufe (ungültige sam, falscher Hash) abgelehnt.
-- [ ] Auf DC01 wurde **nichts** angelegt (F:\Home, Freigaben, NETLOGON unverändert); Transcript liegt vor.
+- [ ] DC01 (`-ConfigurationName CC.Onboarding`, optional `-UserRight`/`-AdditionalAces` wie im Admin-UI):
+  `visibleCommands` nur die zwei Home-Funktionen plus Standardbefehle; zwei Dry-Run-Aufrufe mit
+  `plannedActions` (für die Test-sam `jeatest` meldet `New-OnbHomeFolder` ggf. `waiting`, weil das
+  Konto nicht existiert – korrekt); ungültige sam und Principal außerhalb der Allowlist abgelehnt;
+  auf DC01 wurde **nichts** angelegt.
+- [ ] DC03 (`-ComputerName DC03 -ConfigurationName CC.Onboarding.Logon`): nur `Set-OnbLogonScript`
+  sichtbar; Dry-Run mit `plannedActions`, falscher Hash abgelehnt; NETLOGON unverändert.
 - [ ] Gegenprobe: derselbe Aufruf mit einem Admin-Konto, das nicht in den `RoleDefinitions` steht,
   wird abgewiesen („Zugriff verweigert“).
-- [ ] CC01: wie oben mit `-ComputerName CC01 -ConfigurationName CC.Onboarding.Sync` (nur
-  Befehlsliste); mit `-TriggerSync` wird ein **echter** Delta-Sync gestartet.
+- [ ] CC01: `-ComputerName CC01 -ConfigurationName CC.Onboarding.Sync` (nur Befehlsliste); mit
+  `-TriggerSync` wird ein **echter** Delta-Sync gestartet.
+
+### 4.5 NTFS-Rechte der Home-Ordner (DECISIONS X17)
+
+- Soll: Vererbung aus, Besitzer `HomeOwner`, Benutzer mit `GlobalConfig.Home.UserRight`
+  (Startwert **Ändern** – bewusste Abweichung vom uneinheitlichen Bestand, damit Benutzer keine
+  Rechte ändern können), dazu `GlobalConfig.Home.AdditionalAces` (Startwert SYSTEM und
+  BUILTIN\Administrators = Vollzugriff) und `HomeAdditionalAces` der Abteilung (gleicher Principal:
+  Abteilung gewinnt). Alles mit Vererbung auf Unterordner und Dateien.
+- Vorhandener Ordner mit abweichenden Rechten ⇒ Step `NeedsInput` mit `home-acl-mismatch` und den
+  Abweichungen; „Überschreiben“ setzt die Rechte vollständig auf das Soll.
+- [ ] **Zu verifizieren** auf DC01: `NTAccount`-Auflösung von `SYSTEM` und
+  `BUILTIN\Administrators` (Sprache des Betriebssystems); sonst SIDs (`S-1-5-18`,
+  `S-1-5-32-544`) im Admin-UI **und** in der Allowlist verwenden.
 
 ## 5. Worker-Host (`<ONB-HOST>`)
 
@@ -211,7 +240,8 @@ Erwartung in `jea-dc.json`:
       "ScriptsDirectory": "C:\\Program Files\\CCOnboarding\\scripts",
       "Timeout": "00:04:00",
       "TimeoutOverrides": { "EXO.": "00:06:00", "Teams.": "00:10:00" },
-      "DcConfigurationName": "CC.Onboarding",
+      "HomeConfigurationName": "CC.Onboarding",
+      "LogonConfigurationName": "CC.Onboarding.Logon",
       "SyncConfigurationName": "CC.Onboarding.Sync"
     }
   },
@@ -294,8 +324,8 @@ Ternary-Operator sind nur durch diesen 5.1-Lauf abgedeckt.
    „Dry-Run – würde: …“ (DECISIONS X4). Bericht prüfen. Steps, deren Zielzustand bereits erreicht
    ist, stehen auf `Done`.
 4. **Worker `OnPrem = Real`**, Worker neu starten, betroffene Steps per „Erneut versuchen“
-   anstoßen. Ergebnis im AD, auf F:\Home, an der Freigabe und in NETLOGON prüfen; SHA-256 der
-   Skriptdatei mit der Vorschau vergleichen.
+   anstoßen. Ergebnis im AD, auf DC01 (F:\Home: Vererbung aus, Besitzer, ACEs; Freigabe) und in
+   NETLOGON auf DC03 prüfen; SHA-256 der Skriptdatei mit der Vorschau vergleichen.
 5. Idempotenz: Steps erneut ausführen → keine Änderung, `Done`. Ein Attribut am Testkonto von Hand
    ändern → `AD.CreateUser` korrigiert es beim nächsten Lauf, setzt aber **nie** das Passwort neu
    (DECISIONS X8).
@@ -440,7 +470,8 @@ Ungültige Werte brechen den Start ab (Meldung nennt den Schlüssel, nie den Wer
 
 | Alternative | Warum verworfen |
 |---|---|
-| Home-Ordner, Freigabe und Anmeldeskript direkt vom Worker über Admin-Share (`\\DC01\F$`) bzw. UNC auf NETLOGON | Worker-gMSA bräuchte Schreibrechte auf F:\Home und NETLOGON bzw. lokale Admin-Rechte auf einem DC; Pfade kämen vom Worker (Traversal-Risiko). |
-| `New-SmbShare`/ACL-Änderungen per CIM-Session oder `Invoke-Command` mit Admin-Rechten | Gleiche Rechteausweitung (lokaler Admin auf DC01 = faktisch Domain Admin); keine Parametervalidierung auf dem Zielsystem. |
+| Home-Ordner, Freigabe und Anmeldeskript direkt vom Worker über Admin-Share (`\\DC01\F$`) bzw. UNC auf NETLOGON | Worker-gMSA bräuchte Schreibrechte auf F:\Home und NETLOGON bzw. lokale Admin-Rechte auf dem Fileserver; Pfade kämen vom Worker (Traversal-Risiko). |
+| `New-SmbShare`/ACL-Änderungen per CIM-Session oder `Invoke-Command` mit Admin-Rechten | Worker-gMSA wäre lokaler Admin auf DC01; keine Parametervalidierung auf dem Zielsystem. |
+| Anmeldeskript über den DC01-Endpunkt | DC01 ist Fileserver, NETLOGON liegt auf den DCs; ein Virtual Account auf einem DC wäre Domain Admin. Ersetzt durch `CC.Onboarding.Logon` auf DC03 mit gMSA. |
 | Worker-gMSA in `ADSyncOperators` auf CC01 | Erlaubt mehr als den Delta-Sync (alle ADSync-Cmdlets der Gruppe); JEA beschränkt auf genau `Start-OnbDeltaSync`. |
 | `Exchange.ManageAsApp` mit Verzeichnisrolle „Exchange Administrator“ | Ganzer Tenant statt Management Scope; RBAC for Applications begrenzt auf Benutzer und Freigabepostfächer (§11.2). |

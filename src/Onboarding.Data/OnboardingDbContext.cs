@@ -137,6 +137,7 @@ public sealed class OnboardingDbContext(DbContextOptions<OnboardingDbContext> op
             Json(b.Property(d => d.SharedMailboxes));
             Json(b.Property(d => d.LogonScript));
             Json(b.Property(d => d.Teams));
+            Json(b.Property(d => d.HomeAdditionalAces));
         });
 
         modelBuilder.Entity<CertificateStatus>(b =>

@@ -7,17 +7,59 @@
 BeforeAll {
     . (Join-Path $PSScriptRoot 'Stubs.ps1')
     Import-Module ([System.IO.Path]::Combine($PSScriptRoot, '..', 'jea', 'CCOnboarding', 'CCOnboarding.psd1')) -Force
+    Import-Module ([System.IO.Path]::Combine($PSScriptRoot, '..', 'jea', 'CCOnboardingLogon', 'CCOnboardingLogon.psd1')) -Force
     Import-Module ([System.IO.Path]::Combine($PSScriptRoot, '..', 'jea', 'CCOnboardingSync', 'CCOnboardingSync.psd1')) -Force
 
-    $script:Config = @{
-        HomeRoot             = 'F:\Home'
-        ShareNamePattern     = '{sam}$'
-        ShareFullAccess      = @('BUILTIN\Administrators')
-        NetbiosDomain        = 'CC'
-        LogonScriptDirectory = 'C:\Windows\SYSVOL\sysvol\example.test\scripts'
+    # File server DC01 (CC.Onboarding).
+    $script:HomeConfig = @{
+        HomeRoot         = 'F:\Home'
+        ShareNamePattern = '{sam}$'
+        ShareFullAccess  = @('BUILTIN\Administrators')
+        NetbiosDomain    = 'CC'
+        HomeOwner        = 'BUILTIN\Administrators'
+        HomeUserRights   = @('Modify', 'FullControl')
+        HomeAceAllowlist = @{
+            'SYSTEM'                 = @('FullControl')
+            'BUILTIN\Administrators' = @('FullControl')
+            'CC\CC-Management'       = @('Modify')
+        }
+    }
+
+    # Domain controller DC03 (CC.Onboarding.Logon).
+    $script:LogonConfig = @{
+        LogonScriptDirectory = 'C:\Windows\SYSVOL\sysvol\example.test\SCRIPTS'
         LogonFileNamePattern = '{sam}.bat'
         MaxLogonScriptBytes  = 65536
     }
+
+    $script:Sids = @{
+        'CC\lirion'              = 'S-1-5-21-1-2-3-1105'
+        'BUILTIN\Administrators' = 'S-1-5-32-544'
+        'SYSTEM'                 = 'S-1-5-18'
+        'CC\CC-Management'       = 'S-1-5-21-1-2-3-2001'
+    }
+
+    function New-Rule {
+        param([string] $Sid, [string] $Right, [string] $Inherit = 'ContainerInherit, ObjectInherit', [string] $Type = 'Allow')
+        [pscustomobject]@{ Sid = $Sid; Right = $Right; Inherit = $Inherit; Type = $Type }
+    }
+
+    function New-AclState {
+        param([object[]] $Rules, [bool] $Protected = $true, [string] $Owner = 'S-1-5-32-544')
+        [pscustomobject]@{ Protected = $Protected; OwnerSid = $Owner; Rules = @($Rules) }
+    }
+
+    # The desired ACL for lirion with the default config (Modify + SYSTEM/Administrators FullControl).
+    function New-DesiredRules {
+        param([string] $UserRight = 'Modify')
+        @(
+            New-Rule 'S-1-5-21-1-2-3-1105' $UserRight
+            New-Rule 'S-1-5-18' 'FullControl'
+            New-Rule 'S-1-5-32-544' 'FullControl'
+        )
+    }
+
+    $script:DefaultAces = @('SYSTEM=FullControl', 'BUILTIN\Administrators=FullControl')
 
     function Get-Sha([byte[]] $Bytes) {
         $sha = [System.Security.Cryptography.SHA256]::Create()
@@ -46,18 +88,19 @@ BeforeAll {
     $script:GoodHash = Get-Sha $script:Good
 }
 
+
 Describe 'Set-OnbLogonScript – Validierung' {
     BeforeEach {
-        Mock -ModuleName CCOnboarding Get-OnbEndpointConfig { $script:Config }
-        Mock -ModuleName CCOnboarding Test-OnbFile { $false }
-        Mock -ModuleName CCOnboarding Write-OnbFileBytes { }
+        Mock -ModuleName CCOnboardingLogon Get-OnbEndpointConfig { $script:LogonConfig }
+        Mock -ModuleName CCOnboardingLogon Test-OnbFile { $false }
+        Mock -ModuleName CCOnboardingLogon Write-OnbFileBytes { }
     }
 
     It 'rejects invalid sam <Sam>' -TestCases @(
         @{ Sam = '..\..\Windows' }, @{ Sam = 'LIRION' }, @{ Sam = 'lirion.bat' }, @{ Sam = 'a b' }, @{ Sam = '' }, @{ Sam = 'abcdefghijklmnopqrstu' }
     ) {
         Assert-Rejected -Code 'invalid-sam' { Set-OnbLogonScript -Sam $Sam -ContentBase64 $script:GoodBase64 -Sha256 $script:GoodHash }
-        Should -Invoke -ModuleName CCOnboarding Write-OnbFileBytes -Times 0 -Exactly
+        Should -Invoke -ModuleName CCOnboardingLogon Write-OnbFileBytes -Times 0 -Exactly
     }
 
     It 'rejects non-ASCII content' {
@@ -79,7 +122,7 @@ Describe 'Set-OnbLogonScript – Validierung' {
         $result = Set-OnbLogonScript -Sam lirion -ContentBase64 $script:GoodBase64 -Sha256 ('0' * 64)
         $result.code | Should -Be 'hash-mismatch'
         $result.reason | Should -Be 'Abgelehnt: SHA-256 stimmt nicht mit dem Inhalt überein.'
-        Should -Invoke -ModuleName CCOnboarding Write-OnbFileBytes -Times 0 -Exactly
+        Should -Invoke -ModuleName CCOnboardingLogon Write-OnbFileBytes -Times 0 -Exactly
     }
 
     It 'rejects malformed hash and base64' {
@@ -96,100 +139,190 @@ Describe 'Set-OnbLogonScript – Validierung' {
         (Get-Command New-OnbHomeFolder).Parameters.Keys | Should -Not -Contain 'Path'
         (Get-Command New-OnbHomeShare).Parameters.Keys | Should -Not -Contain 'Path'
     }
+
+    It 'endpoints are split: DC01 has only home functions, DC03 only the logon script' {
+        @((Get-Command -Module CCOnboarding).Name | Sort-Object) | Should -Be @('New-OnbHomeFolder', 'New-OnbHomeShare')
+        @((Get-Command -Module CCOnboardingLogon).Name) | Should -Be @('Set-OnbLogonScript')
+    }
 }
 
 Describe 'Set-OnbLogonScript – Idempotenz' {
     BeforeEach {
-        Mock -ModuleName CCOnboarding Get-OnbEndpointConfig { $script:Config }
-        Mock -ModuleName CCOnboarding Write-OnbFileBytes { }
+        Mock -ModuleName CCOnboardingLogon Get-OnbEndpointConfig { $script:LogonConfig }
+        Mock -ModuleName CCOnboardingLogon Write-OnbFileBytes { }
     }
 
     It 'writes a new file' {
-        Mock -ModuleName CCOnboarding Test-OnbFile { $false }
+        Mock -ModuleName CCOnboardingLogon Test-OnbFile { $false }
         $result = Set-OnbLogonScript -Sam lirion -ContentBase64 $script:GoodBase64 -Sha256 $script:GoodHash
         $result.status | Should -Be 'done'
-        Should -Invoke -ModuleName CCOnboarding Write-OnbFileBytes -Times 1 -Exactly -ParameterFilter { $Path -like '*\scripts\lirion.bat' }
+        Should -Invoke -ModuleName CCOnboardingLogon Write-OnbFileBytes -Times 1 -Exactly -ParameterFilter { $Path -like '*\scripts\lirion.bat' }
     }
 
     It 'same hash → nothing to do' {
-        Mock -ModuleName CCOnboarding Test-OnbFile { $true }
-        Mock -ModuleName CCOnboarding Read-OnbFileBytes { $script:Good }
+        Mock -ModuleName CCOnboardingLogon Test-OnbFile { $true }
+        Mock -ModuleName CCOnboardingLogon Read-OnbFileBytes { $script:Good }
         (Set-OnbLogonScript -Sam lirion -ContentBase64 $script:GoodBase64 -Sha256 $script:GoodHash).reason | Should -Match '^Datei vorhanden'
-        Should -Invoke -ModuleName CCOnboarding Write-OnbFileBytes -Times 0 -Exactly
+        Should -Invoke -ModuleName CCOnboardingLogon Write-OnbFileBytes -Times 0 -Exactly
     }
 
     It 'different content without force → needsInput, file untouched' {
-        Mock -ModuleName CCOnboarding Test-OnbFile { $true }
-        Mock -ModuleName CCOnboarding Read-OnbFileBytes { [Text.Encoding]::ASCII.GetBytes("manuell`r`n") }
+        Mock -ModuleName CCOnboardingLogon Test-OnbFile { $true }
+        Mock -ModuleName CCOnboardingLogon Read-OnbFileBytes { [Text.Encoding]::ASCII.GetBytes("manuell`r`n") }
         $result = Set-OnbLogonScript -Sam lirion -ContentBase64 $script:GoodBase64 -Sha256 $script:GoodHash
         $result.status | Should -Be 'needsInput'
         $result.code | Should -Be 'logon-script-modified'
         $result.reason | Should -Match 'manuell angelegt oder geändert'
-        Should -Invoke -ModuleName CCOnboarding Write-OnbFileBytes -Times 0 -Exactly
+        Should -Invoke -ModuleName CCOnboardingLogon Write-OnbFileBytes -Times 0 -Exactly
     }
 
     It 'different content with force → overwritten' {
-        Mock -ModuleName CCOnboarding Test-OnbFile { $true }
-        Mock -ModuleName CCOnboarding Read-OnbFileBytes { [Text.Encoding]::ASCII.GetBytes("manuell`r`n") }
+        Mock -ModuleName CCOnboardingLogon Test-OnbFile { $true }
+        Mock -ModuleName CCOnboardingLogon Read-OnbFileBytes { [Text.Encoding]::ASCII.GetBytes("manuell`r`n") }
         (Set-OnbLogonScript -Sam lirion -ContentBase64 $script:GoodBase64 -Sha256 $script:GoodHash -Force).status | Should -Be 'done'
-        Should -Invoke -ModuleName CCOnboarding Write-OnbFileBytes -Times 1 -Exactly
+        Should -Invoke -ModuleName CCOnboardingLogon Write-OnbFileBytes -Times 1 -Exactly
     }
 
     It 'dry-run writes nothing' {
-        Mock -ModuleName CCOnboarding Test-OnbFile { $false }
+        Mock -ModuleName CCOnboardingLogon Test-OnbFile { $false }
         $result = Set-OnbLogonScript -Sam lirion -ContentBase64 $script:GoodBase64 -Sha256 $script:GoodHash -DryRun
         @($result.plannedActions).Count | Should -Be 1
-        Should -Invoke -ModuleName CCOnboarding Write-OnbFileBytes -Times 0 -Exactly
+        Should -Invoke -ModuleName CCOnboardingLogon Write-OnbFileBytes -Times 0 -Exactly
     }
 }
 
+
 Describe 'New-OnbHomeFolder' {
     BeforeEach {
-        Mock -ModuleName CCOnboarding Get-OnbEndpointConfig { $script:Config }
-        Mock -ModuleName CCOnboarding Test-OnbAccountResolvable { $true }
+        Mock -ModuleName CCOnboarding Get-OnbEndpointConfig { $script:HomeConfig }
+        Mock -ModuleName CCOnboarding Get-OnbSid { $script:Sids[$Principal] }
+        Mock -ModuleName CCOnboarding Test-OnbDirectory { $false }
         Mock -ModuleName CCOnboarding New-OnbDirectory { }
-        Mock -ModuleName CCOnboarding Set-OnbAcl { }
+        Mock -ModuleName CCOnboarding Set-OnbHomeAcl { }
+        $script:AclState = New-AclState -Rules (New-DesiredRules)
+        Mock -ModuleName CCOnboarding Get-OnbAclState { $script:AclState }
+    }
+
+    It 'new folder: inheritance off, owner Administrators, user Modify plus allowlisted ACEs' {
+        $result = New-OnbHomeFolder -Sam lirion -UserRight Modify -AdditionalAces $script:DefaultAces
+        $result.status | Should -Be 'done'
+        Should -Invoke -ModuleName CCOnboarding New-OnbDirectory -Times 1 -Exactly -ParameterFilter { $Path -eq 'F:\Home\lirion' }
+        Should -Invoke -ModuleName CCOnboarding Set-OnbHomeAcl -Times 1 -Exactly -ParameterFilter {
+            $OwnerSid -eq 'S-1-5-32-544' -and @($Rules).Count -eq 3 -and
+            @($Rules | Where-Object { $_.Sid -eq 'S-1-5-21-1-2-3-1105' -and $_.Right -eq 'Modify' }).Count -eq 1 -and
+            @($Rules | Where-Object { $_.Sid -eq 'S-1-5-18' -and $_.Right -eq 'FullControl' }).Count -eq 1
+        }
+    }
+
+    It 'UserRight FullControl gives the user FullControl' {
+        New-OnbHomeFolder -Sam lirion -UserRight FullControl -AdditionalAces $script:DefaultAces | Out-Null
+        Should -Invoke -ModuleName CCOnboarding Set-OnbHomeAcl -Times 1 -Exactly -ParameterFilter {
+            @($Rules | Where-Object { $_.Sid -eq 'S-1-5-21-1-2-3-1105' -and $_.Right -eq 'FullControl' }).Count -eq 1
+        }
+    }
+
+    It 'department ACE from the allowlist is accepted' {
+        New-OnbHomeFolder -Sam lirion -UserRight Modify -AdditionalAces @($script:DefaultAces + 'cc\cc-management=Modify') | Out-Null
+        Should -Invoke -ModuleName CCOnboarding Set-OnbHomeAcl -Times 1 -Exactly -ParameterFilter {
+            @($Rules).Count -eq 4 -and @($Rules | Where-Object { $_.Sid -eq 'S-1-5-21-1-2-3-2001' -and $_.Right -eq 'Modify' }).Count -eq 1
+        }
+    }
+
+    It 'rejects <Name> → <Code> without touching the file system' -TestCases @(
+        @{ Name = 'principal not in allowlist'; UserRight = 'Modify'; Aces = @('CC\Domain Users=FullControl'); Code = 'ace-not-allowed' }
+        @{ Name = 'right not allowed for principal'; UserRight = 'Modify'; Aces = @('CC\CC-Management=FullControl'); Code = 'ace-not-allowed' }
+        @{ Name = 'malformed entry'; UserRight = 'Modify'; Aces = @('CC\CC-Management'); Code = 'invalid-ace' }
+        @{ Name = 'unknown right'; UserRight = 'Modify'; Aces = @('SYSTEM=Read'); Code = 'invalid-ace' }
+        @{ Name = 'duplicate principal'; UserRight = 'Modify'; Aces = @('SYSTEM=FullControl', 'system=FullControl'); Code = 'invalid-ace' }
+    ) {
+        Assert-Rejected -Code $Code { New-OnbHomeFolder -Sam lirion -UserRight $UserRight -AdditionalAces $Aces }
+        Should -Invoke -ModuleName CCOnboarding New-OnbDirectory -Times 0 -Exactly
+        Should -Invoke -ModuleName CCOnboarding Set-OnbHomeAcl -Times 0 -Exactly
+    }
+
+    It 'rejects a user right that the endpoint does not allow' {
+        $script:HomeConfig.HomeUserRights = @('Modify')
+        try {
+            Assert-Rejected -Code 'ace-not-allowed' { New-OnbHomeFolder -Sam lirion -UserRight FullControl -AdditionalAces $script:DefaultAces }
+        }
+        finally {
+            $script:HomeConfig.HomeUserRights = @('Modify', 'FullControl')
+        }
+        Should -Invoke -ModuleName CCOnboarding Set-OnbHomeAcl -Times 0 -Exactly
+    }
+
+    It 'rejects an unknown user right already at parameter binding' {
+        Assert-Rejected -Code 'ace-not-allowed' { New-OnbHomeFolder -Sam lirion -UserRight Read -AdditionalAces $script:DefaultAces }
+        Should -Invoke -ModuleName CCOnboarding Set-OnbHomeAcl -Times 0 -Exactly
     }
 
     It 'rejects path traversal via sam' {
-        Assert-Rejected -Code 'invalid-sam' { New-OnbHomeFolder -Sam '..\Windows' }
+        Assert-Rejected -Code 'invalid-sam' { New-OnbHomeFolder -Sam '..\Windows' -UserRight Modify }
         Should -Invoke -ModuleName CCOnboarding New-OnbDirectory -Times 0 -Exactly
     }
 
     It 'account not yet replicated → waiting' {
-        Mock -ModuleName CCOnboarding Test-OnbAccountResolvable { $false }
-        $result = New-OnbHomeFolder -Sam lirion
+        Mock -ModuleName CCOnboarding Get-OnbSid -ParameterFilter { $Principal -eq 'CC\lirion' } { $null }
+        $result = New-OnbHomeFolder -Sam lirion -UserRight Modify -AdditionalAces $script:DefaultAces
         $result.status | Should -Be 'waiting'
         $result.code | Should -Be 'account-not-resolvable'
         Should -Invoke -ModuleName CCOnboarding New-OnbDirectory -Times 0 -Exactly
     }
 
     It 'dry-run on a missing folder plans folder and ACL, creates nothing' {
-        Mock -ModuleName CCOnboarding Test-OnbDirectory { $false }
-        $result = New-OnbHomeFolder -Sam lirion -DryRun
+        $result = New-OnbHomeFolder -Sam lirion -UserRight Modify -AdditionalAces $script:DefaultAces -DryRun
         @($result.plannedActions).Count | Should -Be 2
         Should -Invoke -ModuleName CCOnboarding New-OnbDirectory -Times 0 -Exactly
-        Should -Invoke -ModuleName CCOnboarding Set-OnbAcl -Times 0 -Exactly
+        Should -Invoke -ModuleName CCOnboarding Set-OnbHomeAcl -Times 0 -Exactly
     }
 
-    It 'existing folder with the user rule → nothing to do' {
+    It 'existing folder with the desired ACL → done, nothing changed' {
         Mock -ModuleName CCOnboarding Test-OnbDirectory { $true }
-        Mock -ModuleName CCOnboarding Get-OnbAcl {
-            [pscustomobject]@{ Access = @([pscustomobject]@{
-                        IdentityReference = [pscustomobject]@{ Value = 'CC\lirion' }
-                        AccessControlType = 'Allow'
-                        FileSystemRights  = [System.Security.AccessControl.FileSystemRights]::Modify
-                        InheritanceFlags  = 3
-                    }) }
+        (New-OnbHomeFolder -Sam lirion -UserRight Modify -AdditionalAces $script:DefaultAces).reason | Should -Be 'Ordner und Rechte entsprechen dem Soll.'
+        Should -Invoke -ModuleName CCOnboarding Set-OnbHomeAcl -Times 0 -Exactly
+    }
+
+    It 'existing folder, <Name> → needsInput home-acl-mismatch' -TestCases @(
+        @{ Name = 'user has FullControl instead of Modify'; State = { New-AclState -Rules (New-DesiredRules -UserRight FullControl) }; Expected = 'fehlt' }
+        @{ Name = 'additional foreign ACE'; State = { New-AclState -Rules (@(New-DesiredRules) + (New-Rule 'S-1-1-0' 'FullControl')) }; Expected = 'zusätzlich' }
+        @{ Name = 'inheritance active'; State = { New-AclState -Rules (New-DesiredRules) -Protected $false }; Expected = 'Vererbung' }
+        @{ Name = 'other owner'; State = { New-AclState -Rules (New-DesiredRules) -Owner 'S-1-5-21-1-2-3-1105' }; Expected = 'Besitzer' }
+        @{ Name = 'deny entry'; State = { New-AclState -Rules (@(New-DesiredRules) + (New-Rule 'S-1-1-0' 'Modify' -Type 'Deny')) }; Expected = 'Deny' }
+    ) {
+        Mock -ModuleName CCOnboarding Test-OnbDirectory { $true }
+        $script:AclState = & $State
+        $result = New-OnbHomeFolder -Sam lirion -UserRight Modify -AdditionalAces $script:DefaultAces
+        $result.status | Should -Be 'needsInput'
+        $result.code | Should -Be 'home-acl-mismatch'
+        $result.reason | Should -Match $Expected
+        Should -Invoke -ModuleName CCOnboarding Set-OnbHomeAcl -Times 0 -Exactly
+    }
+
+    It 'existing folder with deviating ACL and -Force → ACL replaced by the desired one' {
+        Mock -ModuleName CCOnboarding Test-OnbDirectory { $true }
+        $script:AclState = New-AclState -Rules (New-DesiredRules -UserRight FullControl) -Protected $false
+        $result = New-OnbHomeFolder -Sam lirion -UserRight Modify -AdditionalAces $script:DefaultAces -Force
+        $result.status | Should -Be 'done'
+        Should -Invoke -ModuleName CCOnboarding Set-OnbHomeAcl -Times 1 -Exactly -ParameterFilter {
+            @($Rules | Where-Object { $_.Sid -eq 'S-1-5-21-1-2-3-1105' -and $_.Right -eq 'Modify' }).Count -eq 1
         }
-        (New-OnbHomeFolder -Sam lirion).reason | Should -Be 'Ordner und Rechte bereits vorhanden.'
-        Should -Invoke -ModuleName CCOnboarding Set-OnbAcl -Times 0 -Exactly
+    }
+
+    It 'ConvertTo-OnbRightName: <Rights> → <Expected>' -TestCases @(
+        @{ Rights = 'Modify, Synchronize'; Expected = 'Modify' }
+        @{ Rights = 'FullControl'; Expected = 'FullControl' }
+        @{ Rights = 'ReadAndExecute, Synchronize'; Expected = 'ReadAndExecute, Synchronize' }
+    ) {
+        InModuleScope CCOnboarding -Parameters @{ Rights = $Rights; Expected = $Expected } {
+            param($Rights, $Expected)
+            ConvertTo-OnbRightName ([System.Security.AccessControl.FileSystemRights] $Rights) | Should -Be $Expected
+        }
     }
 }
 
 Describe 'New-OnbHomeShare' {
     BeforeEach {
-        Mock -ModuleName CCOnboarding Get-OnbEndpointConfig { $script:Config }
+        Mock -ModuleName CCOnboarding Get-OnbEndpointConfig { $script:HomeConfig }
         Mock -ModuleName CCOnboarding New-OnbShare { }
         Mock -ModuleName CCOnboarding Grant-OnbShareAccess { }
     }

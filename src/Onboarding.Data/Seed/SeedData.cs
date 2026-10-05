@@ -36,9 +36,16 @@ public static class SeedData
             LocalRoot = @"F:\Home",
             ShareNamePattern = "{sam}$",
             UncPattern = @"\\dc01\{sam}$",
+            UserRight = HomeRight.Modify,
+            AdditionalAces =
+            [
+                new HomeAce { Principal = "SYSTEM", Right = HomeRight.FullControl },
+                new HomeAce { Principal = @"BUILTIN\Administrators", Right = HomeRight.FullControl },
+            ],
         },
         LogonScript = new LogonScriptLocationConfig
         {
+            Server = "DC03",
             Path = @"\\dc03\NETLOGON",
             FileNamePattern = "{sam}.bat",
         },
