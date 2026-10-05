@@ -44,6 +44,8 @@ public sealed class OnboardingDbContext(DbContextOptions<OnboardingDbContext> op
             b.Property(r => r.Id).ValueGeneratedNever();
             b.Property(r => r.Version).IsConcurrencyToken();
             b.HasIndex(r => r.Status);
+            b.Property(r => r.DirectoryObjectSid).HasMaxLength(184);
+            b.Property(r => r.SelfApprovalReason).HasMaxLength(1000);
             b.ComplexProperty(r => r.Input, input =>
             {
                 input.Property(i => i.FirstName).HasMaxLength(200);

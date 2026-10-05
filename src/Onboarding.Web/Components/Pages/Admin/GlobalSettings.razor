@@ -105,6 +105,14 @@
                 </select>
             </div>
         </div>
+        <div class="mb-2" style="max-width:32rem">
+            <label class="form-label">Freigaberegel (DECISIONS A1)</label>
+            <select class="form-select" @bind="_settings.ApprovalPolicy" data-testid="approval-policy">
+                <option value="@ApprovalPolicy.SelfApprovalWithReason">Selbstfreigabe mit Begründung erlaubt</option>
+                <option value="@ApprovalPolicy.FourEyes">Vier-Augen-Prinzip (Anleger ≠ Freigebender)</option>
+            </select>
+            <div class="form-text">Gilt nur für Aufträge, die ein ITAdmin selbst angelegt hat. Requester dürfen nie freigeben.</div>
+        </div>
         <div class="form-check mb-2">
             <input class="form-check-input" type="checkbox" id="newOutlook" @bind="_settings.OneWinNativeOutlookEnabled" />
             <label class="form-check-label" for="newOutlook">Neues Outlook erlaubt (OneWinNativeOutlookEnabled)</label>

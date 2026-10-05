@@ -50,6 +50,10 @@
         <input class="form-check-input" type="checkbox" id="closed" @bind="_includeClosed" @bind:after="LoadAsync" />
         <label class="form-check-label small" for="closed">auch abgeschlossene anzeigen</label>
     </div>
+    <div class="col-auto form-check ms-2 mb-1">
+        <input class="form-check-input" type="checkbox" id="selfApproved" @bind="_onlySelfApproved" @bind:after="LoadAsync" data-testid="filter-self-approved" />
+        <label class="form-check-label small" for="selfApproved">nur Selbstfreigaben</label>
+    </div>
 </div>
 
 <table class="table table-sm table-hover align-middle" data-testid="overview">
@@ -68,7 +72,13 @@
                 <td>@row.Area</td>
                 <td>@row.Department</td>
                 <td>@row.Date.ToString("dd.MM.yyyy")</td>
-                <td><StatusBadge RequestStatus="row.Status" /></td>
+                <td>
+                    <StatusBadge RequestStatus="row.Status" />
+                    @if (row.SelfApproved)
+                    {
+                        <span class="badge text-bg-warning ms-1" data-testid="self-approved-badge">Selbstfreigabe</span>
+                    }
+                </td>
                 <td>@(row.StepsTotal == 0 ? "–" : $"{row.StepsDone}/{row.StepsTotal}")</td>
                 <td>@($"{row.ChecklistDone}/{row.ChecklistTotal}")</td>
                 <td>@row.DaysToDeadline</td>
@@ -90,6 +100,7 @@
     private DateOnly? _from;
     private DateOnly? _to;
     private bool _includeClosed;
+    private bool _onlySelfApproved;
     private Timer? _timer;
 
     protected override async Task OnInitializedAsync()
@@ -105,7 +116,7 @@
     }
 
     private async Task LoadAsync() =>
-        _rows = await Requests.GetOverviewAsync(new OverviewFilter(_status, _type, _area, _from, _to, _includeClosed));
+        _rows = await Requests.GetOverviewAsync(new OverviewFilter(_status, _type, _area, _from, _to, _includeClosed, _onlySelfApproved));
 
     public void Dispose() => _timer?.Dispose();
 }

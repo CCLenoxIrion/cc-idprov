@@ -138,7 +138,8 @@ public sealed class WorkerEngine(
             request.ConfigSnapshot!,
             step.ForceRequested,
             request.DirectoryObjectGuid,
-            () => ciphertext is null ? null : decryptor.Decrypt(ciphertext));
+            () => ciphertext is null ? null : decryptor.Decrypt(ciphertext),
+            request.DirectoryObjectSid);
         return new ClaimedStep(step.StepKey, context);
     }
 

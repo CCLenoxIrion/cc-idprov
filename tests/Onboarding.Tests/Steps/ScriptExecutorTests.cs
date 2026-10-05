@@ -137,6 +137,18 @@ public sealed class ScriptExecutorTests
         Assert.Equal(expected, executor.Map(stdout).Code);
     }
 
+    [Theory]
+    [InlineData("S-1-5-21-1111111111-2222222222-3333333333-1105", "S-1-5-21-1111111111-2222222222-3333333333-1105")]
+    [InlineData("S-1-5-18", null)]
+    [InlineData("<script>", null)]
+    public void Maps_directory_object_sid(string sid, string? expected)
+    {
+        var stdout = "{\"status\":\"done\",\"directoryObjectGuid\":\"aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee\",\"directoryObjectSid\":\"" + sid + "\"}";
+        var (executor, _) = Create(AdCreateUser, IntegrationMode.Real, stdout);
+
+        Assert.Equal(expected, executor.Map(stdout).DirectoryObjectSid);
+    }
+
     [Fact]
     public async Task Executor_failures_have_fixed_codes()
     {

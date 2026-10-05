@@ -27,7 +27,8 @@ public sealed record OverviewFilter(
     Guid? AreaId = null,
     DateOnly? From = null,
     DateOnly? To = null,
-    bool IncludeClosed = false);
+    bool IncludeClosed = false,
+    bool OnlySelfApproved = false);
 
 public sealed record OverviewRow(
     Guid Id,
@@ -41,7 +42,8 @@ public sealed record OverviewRow(
     int StepsTotal,
     int ChecklistDone,
     int ChecklistTotal,
-    int DaysToDeadline)
+    int DaysToDeadline,
+    bool SelfApproved = false)
 {
     /// <summary>SPEC §6.1: Failed/NeedsInput red.</summary>
     public bool IsCritical => Status is RequestStatus.Failed or RequestStatus.NeedsInput;
@@ -201,10 +203,11 @@ public sealed class RequestService(
     }
 
     /// <summary>
-    /// Approval (ITAdmin, four-eyes): validates the initial password, freezes the configuration,
-    /// re-checks identity and collisions, encrypts the password for the worker (SPEC §2, §9).
+    /// Approval (ITAdmin; four-eyes or audited self-approval, DECISIONS A1): validates the initial
+    /// password, freezes the configuration, re-checks identity and collisions, encrypts the
+    /// password for the worker (SPEC §2, §9).
     /// </summary>
-    public Task ApproveAsync(Guid id, SecretString initialPassword, CancellationToken ct = default)
+    public Task ApproveAsync(Guid id, SecretString initialPassword, string? selfApprovalReason = null, CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(initialPassword);
         return MutateAsync(id, async (db, request, actor) =>
@@ -220,7 +223,7 @@ public sealed class RequestService(
             var snapshot = await CurrentSnapshotAsync(db, request.Input, ct);
             var check = await CheckIdentityAsync(request, snapshot, ct);
             var ciphertext = encryptor.Encrypt(initialPassword);
-            return workflow.Approve(request, actor, snapshot, check, ciphertext);
+            return workflow.Approve(request, actor, snapshot, check, ciphertext, selfApprovalReason);
         }, ct);
     }
 
@@ -359,6 +362,11 @@ public sealed class RequestService(
             query = query.Where(r => r.Input.EffectiveDate <= to);
         }
 
+        if (filter.OnlySelfApproved)
+        {
+            query = query.Where(r => r.SelfApproved);
+        }
+
         var today = BusinessCalendar.Today(timeProvider.GetUtcNow(), global.TimeZone);
         var requests = await query.ToListAsync(ct);
         return requests
@@ -374,7 +382,8 @@ public sealed class RequestService(
                 r.Steps.Count,
                 r.Checklist.Count(c => c.IsSatisfied),
                 r.Checklist.Count,
-                r.Input.EffectiveDate.DayNumber - today.DayNumber))
+                r.Input.EffectiveDate.DayNumber - today.DayNumber,
+                r.SelfApproved))
             .OrderBy(r => r.Date)
             .ThenBy(r => r.Name, StringComparer.CurrentCulture)
             .ToList();

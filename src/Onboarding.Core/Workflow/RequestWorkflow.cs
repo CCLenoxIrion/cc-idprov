@@ -110,15 +110,25 @@ public sealed class RequestWorkflow(TimeProvider timeProvider, StepPlanRegistry 
         Actor approver,
         RequestConfigSnapshot snapshot,
         IdentityCheck recheck,
-        byte[] encryptedInitialPassword)
+        byte[] encryptedInitialPassword,
+        string? selfApprovalReason = null)
     {
         ArgumentNullException.ThrowIfNull(request);
         ArgumentNullException.ThrowIfNull(approver);
         ArgumentNullException.ThrowIfNull(snapshot);
         ArgumentNullException.ThrowIfNull(recheck);
         Require(approver.IsITAdmin, "Freigabe nur durch ITAdmin.");
-        Require(!string.Equals(approver.Name, request.CreatedBy, StringComparison.OrdinalIgnoreCase),
-            "Vier-Augen-Prinzip: Antragsteller darf nicht freigeben.");
+        var self = IsCreator(request, approver);
+        var reason = selfApprovalReason?.Trim();
+        if (self)
+        {
+            // DECISIONS A1: four-eyes unless the policy allows an audited self-approval.
+            Require(snapshot.Global.ApprovalPolicy == ApprovalPolicy.SelfApprovalWithReason,
+                "Vier-Augen-Prinzip: Antragsteller darf nicht freigeben.");
+            Require(reason is { Length: >= MinSelfApprovalReasonLength },
+                $"Selbstfreigabe: Begründung erforderlich (mindestens {MinSelfApprovalReasonLength} Zeichen).");
+        }
+
         Require(request.Status == RequestStatus.PendingApproval, $"Freigabe im Status {request.Status} nicht möglich.");
         Require(encryptedInitialPassword is { Length: > 0 }, "Startpasswort fehlt.");
 
@@ -133,13 +143,31 @@ public sealed class RequestWorkflow(TimeProvider timeProvider, StepPlanRegistry 
         request.EncryptedInitialPassword = encryptedInitialPassword;
         request.ApprovedBy = approver.Name;
         request.ApprovedAt = now;
+        request.SelfApproved = self;
+        request.SelfApprovalReason = self ? reason : null;
         request.TransitionTo(RequestStatus.Approved, now);
         PlanSteps(request, snapshot, now);
 
         audits.Add(Audit(approver, request, AuditActions.RequestApproved, AuditResults.Success,
             details: $"{request.Steps.Count(s => s.Status == StepStatus.Pending)} Steps geplant, " +
                      $"{request.Steps.Count(s => s.Status == StepStatus.Skipped)} übersprungen."));
+        if (self)
+        {
+            audits.Add(Audit(approver, request, AuditActions.SelfApproved, AuditResults.Success, details: "Selbstfreigabe: " + reason));
+        }
+
         return audits;
+    }
+
+    /// <summary>Minimum length of a self-approval reason (DECISIONS A1).</summary>
+    public const int MinSelfApprovalReasonLength = 10;
+
+    /// <summary>True if the actor created the request (four-eyes / self-approval check).</summary>
+    public static bool IsCreator(Request request, Actor actor)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(actor);
+        return string.Equals(actor.Name, request.CreatedBy, StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>
@@ -341,7 +369,7 @@ public sealed class RequestWorkflow(TimeProvider timeProvider, StepPlanRegistry 
                     Join(message, outcome.OutputJson, attempts)));
                 if (outcome.DirectoryObjectGuid is { } guid)
                 {
-                    audits.AddRange(RecordDirectoryObject(request, guid));
+                    audits.AddRange(RecordDirectoryObject(request, guid, outcome.DirectoryObjectSid));
                 }
 
                 if (stepKey == StepKeys.AdCreateUser)
@@ -496,23 +524,43 @@ public sealed class RequestWorkflow(TimeProvider timeProvider, StepPlanRegistry 
     /// Stores the objectGUID of the account created by <c>AD.CreateUser</c> (called by the
     /// worker, DECISIONS K6). Setting a different GUID later is refused.
     /// </summary>
-    public IReadOnlyList<AuditEntry> RecordDirectoryObject(Request request, Guid objectGuid)
+    /// <remarks>
+    /// The objectSid is recorded alongside (DECISIONS X14) – also later for an already recorded
+    /// GUID. A malformed SID is ignored; a different SID for the same account is refused.
+    /// </remarks>
+    public IReadOnlyList<AuditEntry> RecordDirectoryObject(Request request, Guid objectGuid, string? objectSid = null)
     {
         ArgumentNullException.ThrowIfNull(request);
         Require(objectGuid != Guid.Empty, "objectGUID fehlt.");
-        if (request.DirectoryObjectGuid == objectGuid)
+        Require(request.DirectoryObjectGuid is null || request.DirectoryObjectGuid == objectGuid,
+            $"Auftrag ist bereits dem Konto {request.DirectoryObjectGuid} zugeordnet.");
+        var sid = DirectorySid.IsValid(objectSid) ? objectSid : null;
+        Require(sid is null || request.DirectoryObjectSid is null || string.Equals(request.DirectoryObjectSid, sid, StringComparison.OrdinalIgnoreCase),
+            $"Auftrag ist bereits der SID {request.DirectoryObjectSid} zugeordnet.");
+
+        var details = new List<string>();
+        if (request.DirectoryObjectGuid is null)
+        {
+            request.DirectoryObjectGuid = objectGuid;
+            details.Add($"objectGUID {objectGuid}");
+        }
+
+        if (sid is not null && request.DirectoryObjectSid is null)
+        {
+            request.DirectoryObjectSid = sid;
+            details.Add($"objectSid {sid}");
+        }
+
+        if (details.Count == 0)
         {
             return [];
         }
 
-        Require(request.DirectoryObjectGuid is null,
-            $"Auftrag ist bereits dem Konto {request.DirectoryObjectGuid} zugeordnet.");
-        request.DirectoryObjectGuid = objectGuid;
         request.UpdatedAt = Now;
         return
         [
             Audit(Actor.System, request, AuditActions.DirectoryObjectRecorded, AuditResults.Success,
-                StepKeys.AdCreateUser, $"objectGUID {objectGuid}"),
+                StepKeys.AdCreateUser, string.Join(", ", details)),
         ];
     }
 

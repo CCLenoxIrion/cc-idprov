@@ -67,7 +67,13 @@ public sealed class FakeWorldOptions
 
 public sealed class FakeAdUser
 {
+    private static int _nextRid = 1100;
+
     public Guid ObjectGuid { get; init; } = Guid.NewGuid();
+
+    /// <summary>Fake domain SID; the domain part is made up, the RID increments.</summary>
+    public string Sid { get; init; } = $"S-1-5-21-1000000000-2000000000-3000000000-{Interlocked.Increment(ref _nextRid)}";
+
     public required string SamAccountName { get; init; }
     public Guid? RequestId { get; set; }
     public bool Enabled { get; set; }

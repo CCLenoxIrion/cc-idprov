@@ -25,6 +25,21 @@ function Find-AdUserBySam {
     return Get-ADUser -LDAPFilter $filter -Properties $Properties -ErrorAction Stop | Select-Object -First 1
 }
 
+function Get-AdUserSid {
+    <# objectSid of an ADUser as SDDL string ('S-1-5-21-…'), or '' if not available. #>
+    param([AllowNull()] $User)
+
+    if ($null -eq $User) { return '' }
+    foreach ($name in 'SID', 'objectSid') {
+        if ($User.PSObject.Properties.Name -contains $name -and $null -ne $User.$name) {
+            $value = [string] $User.$name
+            if ($value -match '^S-1-5-21(-\d{1,10}){4}$') { return $value }
+        }
+    }
+
+    return ''
+}
+
 function Test-OwnAdAccount {
     <#
     .SYNOPSIS

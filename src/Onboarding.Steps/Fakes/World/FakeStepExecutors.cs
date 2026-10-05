@@ -140,7 +140,7 @@ public sealed class FakeAdCreateUser(FakeWorld world) : FakeStepExecutor(world)
             var proxiesDiffer = !existing.ProxyAddresses.SequenceEqual(identity.ProxyAddresses, StringComparer.Ordinal);
             if (drift.Count == 0 && !proxiesDiffer)
             {
-                return StepOutcome.Done("Konto existiert bereits mit allen Attributen.", Json(new { existing.ObjectGuid }), existing.ObjectGuid);
+                return StepOutcome.Done("Konto existiert bereits mit allen Attributen.", Json(new { existing.ObjectGuid }), existing.ObjectGuid, existing.Sid);
             }
 
             foreach (var name in drift)
@@ -151,7 +151,7 @@ public sealed class FakeAdCreateUser(FakeWorld world) : FakeStepExecutor(world)
             existing.ProxyAddresses = [.. identity.ProxyAddresses];
             World.Wrote();
             return StepOutcome.Done($"Attribute korrigiert: {string.Join(", ", drift.Concat(proxiesDiffer ? ["proxyAddresses"] : []))}.",
-                Json(new { existing.ObjectGuid }), existing.ObjectGuid);
+                Json(new { existing.ObjectGuid }), existing.ObjectGuid, existing.Sid);
         }
 
         if (context.GetInitialPassword() is not { Length: > 0 })
@@ -176,7 +176,7 @@ public sealed class FakeAdCreateUser(FakeWorld world) : FakeStepExecutor(world)
         World.AdUsers[identity.SamAccountName] = user;
         World.Wrote();
         return StepOutcome.Done("Konto deaktiviert angelegt, Kennwortänderung bei Anmeldung erzwungen.",
-            Json(new { user.ObjectGuid, Ou = identity.OuDistinguishedName }), user.ObjectGuid);
+            Json(new { user.ObjectGuid, Ou = identity.OuDistinguishedName }), user.ObjectGuid, user.Sid);
     }
 }
 

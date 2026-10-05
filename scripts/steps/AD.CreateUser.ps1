@@ -56,7 +56,7 @@ function Invoke-AdCreateUser {
 
     $desired = Get-DesiredAttributes -In $In
     $manager = Get-ADUser -Identity ([guid] $In['managerObjectGuid']) -ErrorAction Stop
-    $properties = @($desired.Keys) + @('manager', 'proxyAddresses', 'objectGUID', 'distinguishedName')
+    $properties = @($desired.Keys) + @('manager', 'proxyAddresses', 'objectGUID', 'objectSid', 'distinguishedName')
     $existing = Find-AdUserBySam -Sam $sam -Properties $properties
 
     if ($null -ne $existing) {
@@ -65,9 +65,10 @@ function Invoke-AdCreateUser {
                 -Reason "Ein Konto mit sAMAccountName '$sam' existiert bereits und gehört nicht zu diesem Auftrag."
         }
 
+        $sid = Get-AdUserSid $existing
         if (-not (Test-SameDn (Get-ParentDn ([string] $existing.DistinguishedName)) ([string] $id['ouDn']))) {
             return New-StepResult -Context $Context -Status needsInput -Code 'ou-mismatch' -Reason 'Das Konto des Auftrags liegt in einer anderen OU als konfiguriert.' `
-                -DirectoryObjectGuid ([string] $existing.ObjectGUID)
+                -DirectoryObjectGuid ([string] $existing.ObjectGUID) -DirectoryObjectSid $sid
         }
 
         # Idempotency: compare all attributes, not only existence (SPEC §7). Password untouched (X8).
@@ -87,7 +88,7 @@ function Invoke-AdCreateUser {
         $managerDrift = [string] $existing.Manager -ne [string] $manager.DistinguishedName
         if ($replace.Count -eq 0 -and -not $managerDrift) {
             return New-StepResult -Context $Context -Status done -Reason 'Konto existiert bereits mit allen Attributen.' `
-                -Output @{ objectGuid = [string] $existing.ObjectGUID } -DirectoryObjectGuid ([string] $existing.ObjectGUID)
+                -Output @{ objectGuid = [string] $existing.ObjectGUID } -DirectoryObjectGuid ([string] $existing.ObjectGUID) -DirectoryObjectSid $sid
         }
 
         $names = @($replace.Keys) + @(if ($managerDrift) { 'manager' })
@@ -101,7 +102,7 @@ function Invoke-AdCreateUser {
         } | Out-Null
 
         return New-StepResult -Context $Context -Status done -Reason ("Attribute korrigiert: {0}." -f ($names -join ', ')) `
-            -Output @{ objectGuid = [string] $existing.ObjectGUID } -DirectoryObjectGuid ([string] $existing.ObjectGUID)
+            -Output @{ objectGuid = [string] $existing.ObjectGUID } -DirectoryObjectGuid ([string] $existing.ObjectGUID) -DirectoryObjectSid $sid
     }
 
     # UPN / mail / proxy address must not belong to another object.
@@ -167,7 +168,8 @@ function Invoke-AdCreateUser {
     }
 
     return New-StepResult -Context $Context -Status done -Reason 'Konto deaktiviert angelegt, Kennwortänderung bei Anmeldung erzwungen.' `
-        -Output @{ objectGuid = [string] $created.ObjectGUID; ou = [string] $id['ouDn'] } -DirectoryObjectGuid ([string] $created.ObjectGUID)
+        -Output @{ objectGuid = [string] $created.ObjectGUID; ou = [string] $id['ouDn'] } -DirectoryObjectGuid ([string] $created.ObjectGUID) `
+        -DirectoryObjectSid (Get-AdUserSid $created)
 }
 
 if ($MyInvocation.InvocationName -ne '.') {

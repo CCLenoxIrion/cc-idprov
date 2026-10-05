@@ -104,7 +104,15 @@
     {
         <span> · freigegeben von @r.ApprovedBy am @Local(r.ApprovedAt!.Value)</span>
     }
+    @if (r.SelfApproved)
+    {
+        <span class="badge text-bg-warning ms-1" data-testid="self-approved-badge">Selbstfreigabe</span>
+    }
 </p>
+@if (r.SelfApproved)
+{
+    <p class="small"><strong>Begründung der Selbstfreigabe:</strong> @r.SelfApprovalReason</p>
+}
 
 <Messages Error="@Error" Info="@Info" />
 
@@ -122,12 +130,23 @@
     <div class="card border-primary mb-3">
         <div class="card-body">
             <h2 class="h5">Freigabe</h2>
-            @if (string.Equals(_actor.Name, r.CreatedBy, StringComparison.OrdinalIgnoreCase))
+            @{ var ownRequest = RequestWorkflow.IsCreator(r, _actor); }
+            @if (ownRequest && _approvalPolicy == ApprovalPolicy.FourEyes)
             {
                 <p class="mb-0">Vier-Augen-Prinzip: Diesen Auftrag muss ein anderer ITAdmin freigeben.</p>
             }
             else
             {
+                @if (ownRequest)
+                {
+                    <div class="alert alert-warning py-2" data-testid="self-approval-hint">
+                        Selbstfreigabe: Sie haben diesen Auftrag selbst angelegt. Begründung ist Pflicht
+                        (mindestens @RequestWorkflow.MinSelfApprovalReasonLength Zeichen) und wird im Audit-Log festgehalten.
+                    </div>
+                    <label class="form-label">Begründung der Selbstfreigabe</label>
+                    <textarea class="form-control mb-2" rows="2" style="max-width:32rem" @bind="_selfApprovalReason" @bind:event="oninput"
+                              data-testid="self-approval-reason"></textarea>
+                }
                 <label class="form-label">Startpasswort (nur für ITAdmin, wird verschlüsselt gespeichert)</label>
                 <div class="input-group mb-1" style="max-width:32rem">
                     <input class="form-control font-monospace" type="@(_showPassword ? "text" : "password")" autocomplete="new-password"
@@ -144,7 +163,7 @@
                     <div class="text-danger small">@e</div>
                 }
                 <p class="small text-muted mt-2">Bei der Freigabe werden Konfiguration eingefroren, Namen und Kollisionen erneut geprüft und die Steps geplant.</p>
-                <button class="btn btn-primary" disabled="@(Busy || string.IsNullOrEmpty(_password) || _passwordErrors.Count > 0)" @onclick="ApproveAsync">Freigeben</button>
+                <button class="btn btn-primary" disabled="@(Busy || string.IsNullOrEmpty(_password) || _passwordErrors.Count > 0 || (ownRequest && _selfApprovalReason.Trim().Length < RequestWorkflow.MinSelfApprovalReasonLength))" @onclick="ApproveAsync">Freigeben</button>
             }
         </div>
     </div>
@@ -379,12 +398,15 @@ else
     private string _cancelReason = "";
     private string? _markDoneStep;
     private string _markDoneReason = "";
+    private string _selfApprovalReason = "";
+    private ApprovalPolicy _approvalPolicy = ApprovalPolicy.FourEyes;
 
     protected override async Task OnInitializedAsync()
     {
         _actor = await User.GetAsync();
         var form = await Requests.GetFormContextAsync();
         _zone = Onboarding.Core.Time.BusinessCalendar.Resolve(form.Global.TimeZone);
+        _approvalPolicy = form.Global.ApprovalPolicy;
         await LoadAsync();
         if (_actor.IsITAdmin)
         {
@@ -456,9 +478,11 @@ else
     private async Task ApproveAsync()
     {
         var secret = new SecretString(_password);
-        var ok = await RunAsync(() => Requests.ApproveAsync(Id, secret));
+        var reason = _selfApprovalReason;
+        var ok = await RunAsync(() => Requests.ApproveAsync(Id, secret, reason));
         if (ok)
         {
+            _selfApprovalReason = "";
             _password = "";
             _showPassword = false;
         }

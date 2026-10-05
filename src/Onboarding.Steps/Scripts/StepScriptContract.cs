@@ -20,6 +20,7 @@ public sealed class StepScriptInput
     public required ScriptIdentity Identity { get; init; }
     public required Guid ManagerObjectGuid { get; init; }
     public Guid? DirectoryObjectGuid { get; init; }
+    public string? DirectoryObjectSid { get; init; }
     public required ScriptConfig Config { get; init; }
     public ScriptLogonScript? LogonScript { get; init; }
 
@@ -78,6 +79,9 @@ public sealed class StepScriptOutput
     public string? Reason { get; set; }
     public JsonElement? Output { get; set; }
     public Guid? DirectoryObjectGuid { get; set; }
+
+    /// <summary>objectSid (SDDL) of the account, from AD.CreateUser (DECISIONS X14).</summary>
+    public string? DirectoryObjectSid { get; set; }
     public bool DryRun { get; set; }
     public List<string> PlannedActions { get; set; } = [];
 }
@@ -144,6 +148,7 @@ public static class StepScriptJson
             },
             ManagerObjectGuid = context.Input.ManagerObjectGuid,
             DirectoryObjectGuid = context.DirectoryObjectGuid,
+            DirectoryObjectSid = context.DirectoryObjectSid,
             Config = new ScriptConfig
             {
                 RequestIdAttribute = global.RequestIdAttribute,

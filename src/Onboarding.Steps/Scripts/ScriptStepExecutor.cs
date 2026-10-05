@@ -91,7 +91,8 @@ public sealed partial class ScriptStepExecutor(
             : "invalid-code";
         return output.Status switch
         {
-            "done" => StepOutcome.Done(reason, outputJson, output.DirectoryObjectGuid),
+            "done" => StepOutcome.Done(reason, outputJson, output.DirectoryObjectGuid,
+                DirectorySid.IsValid(output.DirectoryObjectSid) ? output.DirectoryObjectSid : null),
             "waiting" => StepOutcome.Waiting(reason ?? "Vorbedingung noch nicht erfüllt.", code),
             "failed" => StepOutcome.Failed(reason ?? $"Skript {StepKey} meldet einen Fehler.", code),
             "needsInput" => StepOutcome.NeedsInput(reason ?? "Eingabe erforderlich.", code),

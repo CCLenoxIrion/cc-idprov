@@ -31,8 +31,10 @@ public sealed class StepContext
         RequestConfigSnapshot snapshot,
         bool forceRequested,
         Guid? directoryObjectGuid,
-        Func<SecretString?> initialPassword)
+        Func<SecretString?> initialPassword,
+        string? directoryObjectSid = null)
     {
+        DirectoryObjectSid = directoryObjectSid;
         RequestId = requestId;
         Input = input;
         Identity = identity;
@@ -51,6 +53,9 @@ public sealed class StepContext
     public bool ForceRequested { get; }
 
     public Guid? DirectoryObjectGuid { get; }
+
+    /// <summary>objectSid of the request's AD account, once known (DECISIONS X14).</summary>
+    public string? DirectoryObjectSid { get; }
 
     public bool HasExtension => !string.IsNullOrWhiteSpace(Input.Extension);
 

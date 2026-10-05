@@ -44,6 +44,22 @@ public sealed class GlobalConfig
     public string PasswordCertThumbprint { get; set; } = "";
 
     public ExecutionConfig Execution { get; set; } = new();
+
+    /// <summary>
+    /// Who may approve a request created by an ITAdmin themself (DECISIONS A1). Missing in
+    /// stored configurations → <see cref="ApprovalPolicy.SelfApprovalWithReason"/>.
+    /// </summary>
+    public ApprovalPolicy ApprovalPolicy { get; set; } = ApprovalPolicy.SelfApprovalWithReason;
+}
+
+/// <summary>Approval rule for requests created by the approving ITAdmin (DECISIONS A1).</summary>
+public enum ApprovalPolicy
+{
+    /// <summary>Creator and approver must differ (SPEC §9).</summary>
+    FourEyes,
+
+    /// <summary>An ITAdmin may approve their own request with a mandatory, audited reason.</summary>
+    SelfApprovalWithReason,
 }
 
 public sealed class DoctorTitleConfig

@@ -1,3 +1,4 @@
+using Onboarding.Core.Configuration;
 using Onboarding.Core.Domain;
 using Onboarding.Core.Naming;
 using Onboarding.Core.State;
@@ -61,17 +62,95 @@ public sealed class RequestWorkflowTests
             W.Approve(request, requesterOnly, TestConfig.Snapshot(), Check(request.Input), [1]));
     }
 
+    private Request SubmittedBy(Actor creator)
+    {
+        var request = W.Create(RequestType.Onboarding, TestConfig.Person(), creator, []).Request;
+        W.Submit(request, creator, Check(request.Input));
+        return request;
+    }
+
+    private static RequestConfigSnapshot PolicySnapshot(ApprovalPolicy policy) =>
+        TestConfig.Snapshot(g => g.ApprovalPolicy = policy);
+
     [Fact]
-    public void Approve_enforces_four_eyes()
+    public void Four_eyes_policy_rejects_self_approval_even_with_reason()
     {
         var adminRequester = Actor.Create("it.admin", Role.ITAdmin, Role.Requester);
-        var request = W.Create(RequestType.Onboarding, TestConfig.Person(), adminRequester, []).Request;
-        W.Submit(request, adminRequester, Check(request.Input));
+        var request = SubmittedBy(adminRequester);
 
-        Assert.Throws<WorkflowException>(() =>
-            W.Approve(request, adminRequester, TestConfig.Snapshot(), Check(request.Input), [1]));
+        var ex = Assert.Throws<WorkflowException>(() => W.Approve(request, adminRequester,
+            PolicySnapshot(ApprovalPolicy.FourEyes), Check(request.Input), [1], "Ich bin allein in der IT."));
+        Assert.Contains("Vier-Augen", ex.Message, StringComparison.Ordinal);
+        Assert.Equal(RequestStatus.PendingApproval, request.Status);
+        Assert.False(request.SelfApproved);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   kurz    ")]
+    [InlineData("123456789")]
+    public void Self_approval_without_sufficient_reason_is_rejected(string? reason)
+    {
+        var adminRequester = Actor.Create("it.admin", Role.ITAdmin, Role.Requester);
+        var request = SubmittedBy(adminRequester);
+
+        var ex = Assert.Throws<WorkflowException>(() => W.Approve(request, adminRequester,
+            PolicySnapshot(ApprovalPolicy.SelfApprovalWithReason), Check(request.Input), [1], reason));
+        Assert.Contains("Begründung", ex.Message, StringComparison.Ordinal);
         Assert.Equal(RequestStatus.PendingApproval, request.Status);
     }
+
+    [Fact]
+    public void Self_approval_with_reason_is_allowed_flagged_and_audited()
+    {
+        var adminRequester = Actor.Create("it.admin", Role.ITAdmin, Role.Requester);
+        var request = SubmittedBy(adminRequester);
+
+        var audits = W.Approve(request, adminRequester, PolicySnapshot(ApprovalPolicy.SelfApprovalWithReason),
+            Check(request.Input), [1], "  Ein-Personen-IT, Urlaubsvertretung fehlt  ");
+
+        Assert.Equal(RequestStatus.Approved, request.Status);
+        Assert.True(request.SelfApproved);
+        Assert.Equal("Ein-Personen-IT, Urlaubsvertretung fehlt", request.SelfApprovalReason);
+        var self = Assert.Single(audits, a => a.Action == AuditActions.SelfApproved);
+        Assert.Equal("it.admin", self.Actor);
+        Assert.Contains("Ein-Personen-IT, Urlaubsvertretung fehlt", self.Details, StringComparison.Ordinal);
+        Assert.Contains(audits, a => a.Action == AuditActions.RequestApproved);
+    }
+
+    [Theory]
+    [InlineData(ApprovalPolicy.FourEyes)]
+    [InlineData(ApprovalPolicy.SelfApprovalWithReason)]
+    public void Request_of_someone_else_is_approved_without_reason(ApprovalPolicy policy)
+    {
+        var request = _f.Submitted();
+
+        var audits = W.Approve(request, Admin, PolicySnapshot(policy), Check(request.Input), [1]);
+
+        Assert.Equal(RequestStatus.Approved, request.Status);
+        Assert.False(request.SelfApproved);
+        Assert.Null(request.SelfApprovalReason);
+        Assert.DoesNotContain(audits, a => a.Action == AuditActions.SelfApproved);
+    }
+
+    [Theory]
+    [InlineData(ApprovalPolicy.FourEyes)]
+    [InlineData(ApprovalPolicy.SelfApprovalWithReason)]
+    public void Requester_can_never_approve(ApprovalPolicy policy)
+    {
+        var requester = Actor.Create("hr.mueller", Role.Requester);
+        var own = SubmittedBy(requester);
+        var foreign = _f.Submitted();
+
+        Assert.Throws<WorkflowException>(() => W.Approve(own, requester, PolicySnapshot(policy), Check(own.Input), [1], "Begründung lang genug"));
+        Assert.Throws<WorkflowException>(() => W.Approve(foreign, requester, PolicySnapshot(policy), Check(foreign.Input), [1], "Begründung lang genug"));
+    }
+
+    [Fact]
+    public void Missing_policy_in_stored_configuration_defaults_to_self_approval_with_reason() =>
+        Assert.Equal(ApprovalPolicy.SelfApprovalWithReason,
+            System.Text.Json.JsonSerializer.Deserialize<GlobalConfig>("{}")!.ApprovalPolicy);
 
     [Fact]
     public void Approve_requires_password()
@@ -386,6 +465,47 @@ public sealed class RequestWorkflowTests
 
         Assert.Null(request.EncryptedInitialPassword);
         Assert.Contains(audits, a => a.Action == AuditActions.InitialPasswordDeleted);
+    }
+
+    [Fact]
+    public void Create_user_records_guid_and_sid()
+    {
+        var request = _f.Approved();
+        var guid = Guid.NewGuid();
+        const string sid = "S-1-5-21-1111111111-2222222222-3333333333-1105";
+
+        W.ClaimStep(request, request.FindStep(AdCreateUser)!);
+        var audits = W.ApplyStepOutcome(request, AdCreateUser, Onboarding.Core.Steps.StepOutcome.Done("ok", null, guid, sid));
+
+        Assert.Equal(guid, request.DirectoryObjectGuid);
+        Assert.Equal(sid, request.DirectoryObjectSid);
+        Assert.Contains(audits, a => a.Action == AuditActions.DirectoryObjectRecorded && (a.Details ?? "").Contains(sid, StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Sid_is_added_later_for_a_known_guid_and_a_different_sid_is_refused()
+    {
+        var request = _f.Approved();
+        var guid = Guid.NewGuid();
+        W.RecordDirectoryObject(request, guid);
+        Assert.Null(request.DirectoryObjectSid);
+
+        Assert.Single(W.RecordDirectoryObject(request, guid, "S-1-5-21-1-2-3-1105"));
+        Assert.Equal("S-1-5-21-1-2-3-1105", request.DirectoryObjectSid);
+        Assert.Empty(W.RecordDirectoryObject(request, guid, "S-1-5-21-1-2-3-1105"));
+        Assert.Throws<WorkflowException>(() => W.RecordDirectoryObject(request, guid, "S-1-5-21-1-2-3-9999"));
+    }
+
+    [Theory]
+    [InlineData("S-1-5-18")]
+    [InlineData("S-1-5-21-1-2-3")]
+    [InlineData("kein SID")]
+    [InlineData("S-1-5-21-1-2-3-4\nInjected")]
+    public void Malformed_sid_is_ignored(string sid)
+    {
+        var request = _f.Approved();
+        W.RecordDirectoryObject(request, Guid.NewGuid(), sid);
+        Assert.Null(request.DirectoryObjectSid);
     }
 
     [Fact]

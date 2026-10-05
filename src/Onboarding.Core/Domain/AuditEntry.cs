@@ -42,6 +42,7 @@ public static class AuditActions
     public const string PastEffectiveDateConfirmed = "Request.PastEffectiveDateConfirmed";
     public const string RequestSubmitted = "Request.Submitted";
     public const string RequestApproved = "Request.Approved";
+    public const string SelfApproved = "Request.SelfApproved";
     public const string RequestCancelled = "Request.Cancelled";
     public const string StatusChanged = "Request.StatusChanged";
     public const string NeedsInput = "Request.NeedsInput";

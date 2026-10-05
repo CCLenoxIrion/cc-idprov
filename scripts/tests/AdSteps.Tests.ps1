@@ -14,6 +14,7 @@ BeforeAll {
         param([hashtable] $Overrides = @{}, [string] $RequestId = '6f1c2e3d-4b5a-4c6d-8e9f-0a1b2c3d4e5f')
         $user = [ordered]@{
             ObjectGUID           = [guid] 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee'
+            SID                  = 'S-1-5-21-1111111111-2222222222-3333333333-1105'
             DistinguishedName    = 'CN=Lenox Irion,OU=Users,OU=Technical,DC=example,DC=test'
             givenName            = 'Lenox'
             sn                   = 'Irion'
@@ -40,7 +41,7 @@ Describe 'AD.CreateUser' {
     BeforeEach {
         Mock Get-ADUser -ParameterFilter { $Identity } { $script:Manager }
         Mock Get-ADObject { $null }
-        Mock New-ADUser { [pscustomobject]@{ ObjectGUID = [guid] '11111111-2222-3333-4444-555555555555' } }
+        Mock New-ADUser { [pscustomobject]@{ ObjectGUID = [guid] '11111111-2222-3333-4444-555555555555'; SID = 'S-1-5-21-1111111111-2222222222-3333333333-1234' } }
         Mock Set-ADUser { }
         Mock Set-ADAccountPassword { }
     }
@@ -51,6 +52,7 @@ Describe 'AD.CreateUser' {
 
         $result.status | Should -Be 'done'
         $result.directoryObjectGuid | Should -Be '11111111-2222-3333-4444-555555555555'
+        $result.directoryObjectSid | Should -Be 'S-1-5-21-1111111111-2222222222-3333333333-1234'
         Should -Invoke New-ADUser -Times 1 -Exactly -ParameterFilter {
             $Enabled -eq $false -and $ChangePasswordAtLogon -eq $true -and $Path -eq 'OU=Users,OU=Technical,DC=example,DC=test' -and
             $OtherAttributes['extensionAttribute15'] -eq '6f1c2e3d-4b5a-4c6d-8e9f-0a1b2c3d4e5f' -and
@@ -73,6 +75,7 @@ Describe 'AD.CreateUser' {
 
         $result.status | Should -Be 'done'
         $result.directoryObjectGuid | Should -Be 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee'
+        $result.directoryObjectSid | Should -Be 'S-1-5-21-1111111111-2222222222-3333333333-1105'
         Should -Invoke New-ADUser -Times 0 -Exactly
         Should -Invoke Set-ADUser -Times 0 -Exactly
         Should -Invoke Set-ADAccountPassword -Times 0 -Exactly
@@ -266,6 +269,18 @@ Describe 'AD.Enable' {
         $result.status | Should -Be 'failed'
         $result.code | Should -Be 'account-not-found'
         Should -Invoke Enable-ADAccount -Times 0 -Exactly
+    }
+}
+
+Describe 'Get-AdUserSid' {
+    It 'returns <Expected> for <Name>' -TestCases @(
+        @{ Name = 'SID property'; User = [pscustomobject]@{ SID = 'S-1-5-21-1-2-3-1105' }; Expected = 'S-1-5-21-1-2-3-1105' }
+        @{ Name = 'objectSid property'; User = [pscustomobject]@{ objectSid = 'S-1-5-21-1-2-3-500' }; Expected = 'S-1-5-21-1-2-3-500' }
+        @{ Name = 'well-known SID'; User = [pscustomobject]@{ SID = 'S-1-5-18' }; Expected = '' }
+        @{ Name = 'no SID'; User = [pscustomobject]@{ ObjectGUID = [guid]::NewGuid() }; Expected = '' }
+        @{ Name = 'null'; User = $null; Expected = '' }
+    ) {
+        Get-AdUserSid $User | Should -BeExactly $Expected
     }
 }
 

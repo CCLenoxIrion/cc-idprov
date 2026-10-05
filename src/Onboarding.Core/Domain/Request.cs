@@ -38,8 +38,20 @@ public sealed class Request : IVersioned
     /// </summary>
     public Guid? DirectoryObjectGuid { get; internal set; }
 
+    /// <summary>
+    /// objectSid (SDDL, e.g. <c>S-1-5-21-…</c>) of the AD account, used to recognize the synced
+    /// Entra user (<c>onPremisesSecurityIdentifier</c>, DECISIONS X14).
+    /// </summary>
+    public string? DirectoryObjectSid { get; internal set; }
+
     public string CreatedBy { get; set; } = "";
     public string? ApprovedBy { get; internal set; }
+
+    /// <summary>Approved by its creator under <see cref="ApprovalPolicy.SelfApprovalWithReason"/> (DECISIONS A1).</summary>
+    public bool SelfApproved { get; internal set; }
+
+    /// <summary>Mandatory reason of a self-approval; audited.</summary>
+    public string? SelfApprovalReason { get; internal set; }
     public DateTimeOffset CreatedAt { get; set; }
     public DateTimeOffset UpdatedAt { get; internal set; }
     public DateTimeOffset? ApprovedAt { get; internal set; }

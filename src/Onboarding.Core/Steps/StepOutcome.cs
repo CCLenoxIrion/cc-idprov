@@ -18,16 +18,18 @@ public enum StepOutcomeKind
 /// <param name="Message">Reason (Waiting/Failed/NeedsInput/Skipped), instructions (ManualTask) or summary (Done).</param>
 /// <param name="OutputJson">Structured output for Done, e.g. the SHA-256 of a written file.</param>
 /// <param name="DirectoryObjectGuid">objectGUID of the account created by <c>AD.CreateUser</c>.</param>
+/// <param name="DirectoryObjectSid">objectSid (SDDL) of that account (DECISIONS X14).</param>
 /// <param name="Code">Fixed reason code (DECISIONS X10), e.g. <c>ou-mismatch</c>; UI and tests check it, not the text.</param>
 public sealed record StepOutcome(
     StepOutcomeKind Kind,
     string? Message = null,
     string? OutputJson = null,
     Guid? DirectoryObjectGuid = null,
-    string? Code = null)
+    string? Code = null,
+    string? DirectoryObjectSid = null)
 {
-    public static StepOutcome Done(string? message = null, string? outputJson = null, Guid? directoryObjectGuid = null) =>
-        new(StepOutcomeKind.Done, message, outputJson, directoryObjectGuid);
+    public static StepOutcome Done(string? message = null, string? outputJson = null, Guid? directoryObjectGuid = null, string? directoryObjectSid = null) =>
+        new(StepOutcomeKind.Done, message, outputJson, directoryObjectGuid, DirectoryObjectSid: directoryObjectSid);
 
     public static StepOutcome Waiting(string reason, string? code = null) => new(StepOutcomeKind.Waiting, reason, Code: code);
 
@@ -38,6 +40,15 @@ public sealed record StepOutcome(
     public static StepOutcome ManualTask(string instructions, string? code = null) => new(StepOutcomeKind.ManualTask, instructions, Code: code);
 
     public static StepOutcome Skipped(string reason, string? code = null) => new(StepOutcomeKind.Skipped, reason, Code: code);
+}
+
+/// <summary>Domain account SIDs (DECISIONS X14).</summary>
+public static class DirectorySid
+{
+    /// <summary>A domain account SID: <c>S-1-5-21-a-b-c-rid</c>.</summary>
+    public static bool IsValid(string? sid) =>
+        sid is { Length: <= 184 } &&
+        System.Text.RegularExpressions.Regex.IsMatch(sid, @"\AS-1-5-21(-\d{1,10}){4}\z", System.Text.RegularExpressions.RegexOptions.CultureInvariant, TimeSpan.FromSeconds(1));
 }
 
 /// <summary>Reason codes (DECISIONS X10): kebab-case, stored with the step.</summary>

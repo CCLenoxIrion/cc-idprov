@@ -1,3 +1,4 @@
+using Onboarding.Core.Configuration;
 using Onboarding.Core.Domain;
 using Onboarding.Core.Naming;
 using Onboarding.Core.Security;
@@ -105,16 +106,46 @@ public sealed class RequestServiceTests : IDisposable
     }
 
     [Fact]
-    public async Task Requester_cannot_approve_and_admin_cannot_approve_own_request()
+    public async Task Requester_cannot_approve_and_admin_needs_reason_for_own_request()
     {
         var departmentId = await _host.CreateDepartmentAsync();
         _host.SignInHr();
         var hrRequest = await _host.Requests.CreateAsync(WebTestHost.Input(departmentId), submit: true);
         await Assert.ThrowsAsync<UserFacingException>(() => _host.Requests.ApproveAsync(hrRequest, new SecretString(Password)));
+        await Assert.ThrowsAsync<UserFacingException>(() => _host.Requests.ApproveAsync(hrRequest, new SecretString(Password), "Begründung lang genug"));
 
+        // Default policy SelfApprovalWithReason (DECISIONS A1).
         _host.SignInAdmin();
-        var adminRequest = await _host.Requests.CreateAsync(WebTestHost.Input(departmentId, "Lisa", "Berg"), submit: true);
+        // Different extension: both requests are open, the same one would collide (K3).
+        var adminRequest = await _host.Requests.CreateAsync(WebTestHost.Input(departmentId, "Lisa", "Berg", extension: "13"), submit: true);
         var ex = await Assert.ThrowsAsync<UserFacingException>(() => _host.Requests.ApproveAsync(adminRequest, new SecretString(Password)));
+        Assert.Contains("Begründung", ex.Message, StringComparison.Ordinal);
+
+        await _host.Requests.ApproveAsync(adminRequest, new SecretString(Password), "Einzige IT-Person im Haus");
+        var details = (await _host.Requests.GetDetailsAsync(adminRequest))!;
+        Assert.True(details.Request.SelfApproved);
+        Assert.Contains(details.Audit, a => a.Action == AuditActions.SelfApproved && (a.Details ?? "").Contains("Einzige IT-Person", StringComparison.Ordinal));
+        var rows = await _host.Requests.GetOverviewAsync(new OverviewFilter(OnlySelfApproved: true));
+        Assert.Equal(adminRequest, Assert.Single(rows).Id);
+        Assert.True(rows[0].SelfApproved);
+
+        // HR request: an ITAdmin approves without reason.
+        await _host.Requests.ApproveAsync(hrRequest, new SecretString(Password));
+        Assert.False((await _host.Requests.GetDetailsAsync(hrRequest))!.Request.SelfApproved);
+    }
+
+    [Fact]
+    public async Task Four_eyes_policy_blocks_own_request()
+    {
+        var departmentId = await _host.CreateDepartmentAsync();
+        _host.SignInAdmin();
+        var record = await _host.Config.GetGlobalAsync();
+        record.Settings.ApprovalPolicy = ApprovalPolicy.FourEyes;
+        await _host.Config.SaveGlobalAsync(record.Settings, record.Version);
+
+        var adminRequest = await _host.Requests.CreateAsync(WebTestHost.Input(departmentId, "Lisa", "Berg"), submit: true);
+        var ex = await Assert.ThrowsAsync<UserFacingException>(() =>
+            _host.Requests.ApproveAsync(adminRequest, new SecretString(Password), "Begründung lang genug"));
         Assert.Contains("Vier-Augen", ex.Message, StringComparison.Ordinal);
     }
 

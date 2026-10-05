@@ -8,7 +8,8 @@
       * Input only as JSON on stdin (never command-line parameters, so secrets do not appear
         in process lists or logs).
       * Output only as one JSON object on stdout:
-        { status, code, reason, output, directoryObjectGuid, dryRun, plannedActions }.
+        { status, code, reason, output, directoryObjectGuid, directoryObjectSid, dryRun, plannedActions }.
+      * directoryObjectGuid / directoryObjectSid: only AD.CreateUser.
       * code: fixed reason code (kebab-case, DECISIONS X10); required for every status except
         'done'. Tests and the UI check the code, never the text.
       * Errors are always structured. Messages are sanitized: never raw exception messages,
@@ -147,7 +148,8 @@ function New-StepResult {
         [string] $Reason,
         [AllowEmptyString()] [string] $Code,
         [hashtable] $Output,
-        [string] $DirectoryObjectGuid
+        [string] $DirectoryObjectGuid,
+        [string] $DirectoryObjectSid
     )
 
     if ([string]::IsNullOrEmpty($Code)) {
@@ -168,6 +170,10 @@ function New-StepResult {
     }
     if ($DirectoryObjectGuid) {
         $result.directoryObjectGuid = $DirectoryObjectGuid
+    }
+    if ($DirectoryObjectSid) {
+        # objectSid (SDDL) for the Entra ownership check (DECISIONS X14).
+        $result.directoryObjectSid = $DirectoryObjectSid
     }
 
     return $result
