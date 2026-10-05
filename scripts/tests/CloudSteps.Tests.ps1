@@ -177,9 +177,11 @@ Describe 'Entra steps' {
         $result = Invoke-EntraAssignLicense -In $in -Context (New-StepContext -DryRun $false)
 
         $result.status | Should -Be 'done'
+        # The filter also sees the GET calls (no body): only parse the body of the POST.
         Should -Invoke Invoke-MgGraphRequest -Times 1 -Exactly -ParameterFilter {
+            if ($Method -ne 'POST' -or $Uri -notlike '*/assignLicense' -or [string]::IsNullOrEmpty($Body)) { return $false }
             $body = $Body | ConvertFrom-Json
-            $Method -eq 'POST' -and $Uri -like '*/assignLicense' -and @($body.addLicenses).Count -eq 2 -and
+            @($body.addLicenses).Count -eq 2 -and
             @($body.addLicenses | Where-Object { $_.skuId -eq $script:SpbId }).disabledPlans -contains 'p-yammer'
         }
     }
@@ -282,44 +284,63 @@ Describe 'EXO steps' {
 }
 
 Describe 'Teams steps' {
+    # Only our own layer is mocked (Connect-OnbTeams, Invoke-OnbTeams): with MicrosoftTeams installed,
+    # Pester would mock the real cmdlets with their version-dependent parameter metadata.
     BeforeEach {
-        Mock Connect-MicrosoftTeams { [pscustomobject]@{ Account = $script:TestAppId; TenantId = $script:TestTenantId } }
-        Mock Disconnect-MicrosoftTeams { }
+        Mock Connect-OnbTeams { [pscustomobject]@{ Account = $script:TestAppId; TenantId = $script:TestTenantId; Token = $script:TestToken } }
+        Mock Disconnect-OnbTeams { }
         $script:CsUser = [pscustomobject]@{
             Identity = 'cs-user-1'; FeatureTypes = @('Teams', 'PhoneSystem'); LineUri = $null
             OnlineVoiceRoutingPolicy = $null; OnlineVoicemailPolicy = $null
         }
-        Mock Get-CsOnlineUser { $script:CsUser }
-        Mock Get-CsPhoneNumberAssignment { $null }
-        Mock Set-CsPhoneNumberAssignment { }
-        Mock Grant-CsOnlineVoiceRoutingPolicy { }
-        Mock Grant-CsOnlineVoicemailPolicy { }
-        Mock Get-CsOnlineVoicemailUserSettings { [pscustomobject]@{ VoicemailEnabled = $false; PromptLanguage = 'en-US' } }
-        Mock Set-CsOnlineVoicemailUserSettings { }
-        Mock Get-CsUserCallingSettings { [pscustomobject]@{ IsUnansweredEnabled = $false; UnansweredDelay = '00:00:30'; UnansweredTargetType = $null; UnansweredTarget = $null } }
-        Mock Set-CsUserCallingSettings { }
+        $script:Assignment = $null
+        $script:VoicemailSettings = [pscustomobject]@{ VoicemailEnabled = $false; PromptLanguage = 'en-US' }
+        $script:CallingSettings = [pscustomobject]@{ IsUnansweredEnabled = $false; UnansweredDelay = '00:00:30'; UnansweredTargetType = $null; UnansweredTarget = $null }
+        Mock Invoke-OnbTeams { }
+        Mock Invoke-OnbTeams -ParameterFilter { $Command -eq 'Get-CsOnlineUser' } { $script:CsUser }
+        Mock Invoke-OnbTeams -ParameterFilter { $Command -eq 'Get-CsPhoneNumberAssignment' } { $script:Assignment }
+        Mock Invoke-OnbTeams -ParameterFilter { $Command -eq 'Get-CsOnlineVoicemailUserSettings' } { $script:VoicemailSettings }
+        Mock Invoke-OnbTeams -ParameterFilter { $Command -eq 'Get-CsUserCallingSettings' } { $script:CallingSettings }
     }
 
     It 'WaitUser: without PhoneSystem → waiting' {
         $script:CsUser.FeatureTypes = @('Teams')
-        (Invoke-TeamsWaitUser -In (New-CloudStepInput -Step 'Teams.WaitUser') -Context (New-StepContext -DryRun $false)).code | Should -Be 'teams-user-pending'
+        $result = Invoke-TeamsWaitUser -In (New-CloudStepInput -Step 'Teams.WaitUser') -Context (New-StepContext -DryRun $false)
+        $result.status | Should -Be 'waiting'
+        $result.code | Should -Be 'teams-user-pending'
+        Should -Invoke Disconnect-OnbTeams -Times 1 -Exactly
+    }
+
+    It 'WaitUser: with PhoneSystem → done' {
+        (Invoke-TeamsWaitUser -In (New-CloudStepInput -Step 'Teams.WaitUser') -Context (New-StepContext -DryRun $false)).status | Should -Be 'done'
+        Should -Invoke Connect-OnbTeams -Times 1 -Exactly -ParameterFilter { $Auth['tenantId'] -eq $script:TestTenantId -and $Auth['appId'] -eq $script:TestAppId }
     }
 
     It 'Phone: assigns the number with the configured type; idempotent via LineUri' {
         (Invoke-TeamsPhone -In (New-CloudStepInput -Step 'Teams.Phone') -Context (New-StepContext -DryRun $false)).status | Should -Be 'done'
-        Should -Invoke Set-CsPhoneNumberAssignment -Times 1 -Exactly -ParameterFilter { $PhoneNumber -eq '+49123456781' -and $PhoneNumberType -eq 'DirectRouting' }
+        Should -Invoke Invoke-OnbTeams -Times 1 -Exactly -ParameterFilter {
+            $Command -eq 'Set-CsPhoneNumberAssignment' -and $Parameters['Identity'] -eq 'l.irion@example.test' -and
+            $Parameters['PhoneNumber'] -eq '+49123456781' -and $Parameters['PhoneNumberType'] -eq 'DirectRouting'
+        }
 
         $script:CsUser.LineUri = 'tel:+49123456781;ext=781'
         (Invoke-TeamsPhone -In (New-CloudStepInput -Step 'Teams.Phone') -Context (New-StepContext -DryRun $false)).reason | Should -Match 'bereits'
-        Should -Invoke Set-CsPhoneNumberAssignment -Times 1 -Exactly
+        Should -Invoke Invoke-OnbTeams -Times 1 -Exactly -ParameterFilter { $Command -eq 'Set-CsPhoneNumberAssignment' }
     }
 
     It 'Phone: number of another user → failed number-in-use' {
-        Mock Get-CsPhoneNumberAssignment { [pscustomobject]@{ AssignedPstnTargetId = 'someone-else' } }
+        $script:Assignment = [pscustomobject]@{ AssignedPstnTargetId = 'someone-else' }
         $result = Invoke-TeamsPhone -In (New-CloudStepInput -Step 'Teams.Phone') -Context (New-StepContext -DryRun $false)
         $result.status | Should -Be 'failed'
         $result.code | Should -Be 'number-in-use'
-        Should -Invoke Set-CsPhoneNumberAssignment -Times 0 -Exactly
+        Should -Invoke Invoke-OnbTeams -Times 0 -Exactly -ParameterFilter { $Command -eq 'Set-CsPhoneNumberAssignment' }
+    }
+
+    It 'Phone: Teams user missing → failed teams-user-not-found' {
+        $script:CsUser = $null
+        $result = Invoke-TeamsPhone -In (New-CloudStepInput -Step 'Teams.Phone') -Context (New-StepContext -DryRun $false)
+        $result.status | Should -Be 'failed'
+        $result.code | Should -Be 'teams-user-not-found'
     }
 
     It '<Step> without extension → skipped no-extension, no connection' -TestCases @(
@@ -334,31 +355,42 @@ Describe 'Teams steps' {
         $result = & $Handler $in (New-StepContext -DryRun $false)
         $result.status | Should -Be 'skipped'
         $result.code | Should -Be 'no-extension'
-        Should -Invoke Connect-MicrosoftTeams -Times 0 -Exactly
+        Should -Invoke Connect-OnbTeams -Times 0 -Exactly
     }
 
     It 'VoiceRouting: grants the configured policy once' {
         (Invoke-TeamsVoiceRouting -In (New-CloudStepInput -Step 'Teams.VoiceRouting') -Context (New-StepContext -DryRun $false)).status | Should -Be 'done'
-        Should -Invoke Grant-CsOnlineVoiceRoutingPolicy -Times 1 -Exactly -ParameterFilter { $PolicyName -eq 'Routing-Test' }
+        Should -Invoke Invoke-OnbTeams -Times 1 -Exactly -ParameterFilter { $Command -eq 'Grant-CsOnlineVoiceRoutingPolicy' -and $Parameters['PolicyName'] -eq 'Routing-Test' }
         $script:CsUser.OnlineVoiceRoutingPolicy = 'Routing-Test'
         Invoke-TeamsVoiceRouting -In (New-CloudStepInput -Step 'Teams.VoiceRouting') -Context (New-StepContext -DryRun $false) | Out-Null
-        Should -Invoke Grant-CsOnlineVoiceRoutingPolicy -Times 1 -Exactly
+        Should -Invoke Invoke-OnbTeams -Times 1 -Exactly -ParameterFilter { $Command -eq 'Grant-CsOnlineVoiceRoutingPolicy' }
     }
 
     It 'Voicemail: policy and settings' {
         (Invoke-TeamsVoicemail -In (New-CloudStepInput -Step 'Teams.Voicemail') -Context (New-StepContext -DryRun $false)).status | Should -Be 'done'
-        Should -Invoke Grant-CsOnlineVoicemailPolicy -Times 1 -Exactly -ParameterFilter { $PolicyName -eq 'Voicemail-Test' }
-        Should -Invoke Set-CsOnlineVoicemailUserSettings -Times 1 -Exactly -ParameterFilter { $VoicemailEnabled -eq $true -and $PromptLanguage -eq 'de-DE' -and $DefaultGreetingPromptOverwrite -eq '' }
+        Should -Invoke Invoke-OnbTeams -Times 1 -Exactly -ParameterFilter { $Command -eq 'Grant-CsOnlineVoicemailPolicy' -and $Parameters['PolicyName'] -eq 'Voicemail-Test' }
+        Should -Invoke Invoke-OnbTeams -Times 1 -Exactly -ParameterFilter {
+            $Command -eq 'Set-CsOnlineVoicemailUserSettings' -and $Parameters['VoicemailEnabled'] -eq $true -and
+            $Parameters['PromptLanguage'] -eq 'de-DE' -and $Parameters['DefaultGreetingPromptOverwrite'] -eq ''
+        }
+    }
+
+    It 'Voicemail: already set up → nothing changed' {
+        $script:CsUser.OnlineVoicemailPolicy = 'Voicemail-Test'
+        $script:VoicemailSettings = [pscustomobject]@{ VoicemailEnabled = $true; PromptLanguage = 'de-DE' }
+        (Invoke-TeamsVoicemail -In (New-CloudStepInput -Step 'Teams.Voicemail') -Context (New-StepContext -DryRun $false)).reason | Should -Be 'Voicemail bereits eingerichtet.'
+        Should -Invoke Invoke-OnbTeams -Times 0 -Exactly -ParameterFilter { $Command -in 'Grant-CsOnlineVoicemailPolicy', 'Set-CsOnlineVoicemailUserSettings' }
     }
 
     It 'Forwarding: sets unanswered forwarding; idempotent' {
         (Invoke-TeamsForwarding -In (New-CloudStepInput -Step 'Teams.Forwarding') -Context (New-StepContext -DryRun $false)).status | Should -Be 'done'
-        Should -Invoke Set-CsUserCallingSettings -Times 1 -Exactly -ParameterFilter {
-            $IsUnansweredEnabled -eq $true -and $UnansweredDelay -eq '00:00:20' -and $UnansweredTargetType -eq 'singleTarget' -and $UnansweredTarget -eq 'hotline@example.test'
+        Should -Invoke Invoke-OnbTeams -Times 1 -Exactly -ParameterFilter {
+            $Command -eq 'Set-CsUserCallingSettings' -and $Parameters['IsUnansweredEnabled'] -eq $true -and $Parameters['UnansweredDelay'] -eq '00:00:20' -and
+            $Parameters['UnansweredTargetType'] -eq 'singleTarget' -and $Parameters['UnansweredTarget'] -eq 'hotline@example.test'
         }
-        Mock Get-CsUserCallingSettings { [pscustomobject]@{ IsUnansweredEnabled = $true; UnansweredDelay = '00:00:20'; UnansweredTargetType = 'singleTarget'; UnansweredTarget = 'sip:Hotline@example.test' } }
+        $script:CallingSettings = [pscustomobject]@{ IsUnansweredEnabled = $true; UnansweredDelay = '00:00:20'; UnansweredTargetType = 'singleTarget'; UnansweredTarget = 'sip:Hotline@example.test' }
         (Invoke-TeamsForwarding -In (New-CloudStepInput -Step 'Teams.Forwarding') -Context (New-StepContext -DryRun $false)).reason | Should -Be 'Weiterleitung bereits eingerichtet.'
-        Should -Invoke Set-CsUserCallingSettings -Times 1 -Exactly
+        Should -Invoke Invoke-OnbTeams -Times 1 -Exactly -ParameterFilter { $Command -eq 'Set-CsUserCallingSettings' }
     }
 
     It '<Step> with manualOnly → manualTask with ready command, no connection, no secrets' -TestCases @(
@@ -374,7 +406,23 @@ Describe 'Teams steps' {
         $result.reason | Should -Match ([regex]::Escape($Command))
         $result.reason | Should -Match "'l.irion@example.test'"
         Assert-NoConnectionDetails $result
-        Should -Invoke Connect-MicrosoftTeams -Times 0 -Exactly
+        Should -Invoke Connect-OnbTeams -Times 0 -Exactly
+        Should -Invoke Invoke-OnbTeams -Times 0 -Exactly
+    }
+
+    It 'failed Teams connect → cloud-auth-failed with exception type only' {
+        Mock Connect-OnbTeams { throw [System.Management.Automation.ParameterBindingException]::new("token $script:TestToken tenant $script:TestTenantId") }
+        $result = Invoke-StepHandler ${function:Invoke-TeamsVoiceRouting} (New-CloudStepInput -Step 'Teams.VoiceRouting') (New-StepContext -DryRun $false)
+
+        $result.status | Should -Be 'failed'
+        $result.code | Should -Be 'cloud-auth-failed'
+        $result.reason | Should -Match 'ParameterBindingException'
+        Assert-NoConnectionDetails $result
+        Should -Invoke Invoke-OnbTeams -Times 0 -Exactly
+    }
+
+    It 'Invoke-OnbTeams accepts only the listed Teams commands' {
+        { Invoke-OnbTeams -Command 'Remove-CsOnlineUser' } | Should -Throw
     }
 }
 
@@ -394,17 +442,17 @@ Describe 'Dry-run (E5)' {
         Mock Add-MailboxPermission { throw 'dry-run must not write' }
         Mock Get-RecipientPermission { @() }
         Mock Add-RecipientPermission { throw 'dry-run must not write' }
-        Mock Connect-MicrosoftTeams { [pscustomobject]@{ Account = $script:TestAppId; TenantId = $script:TestTenantId; Token = $script:TestToken } }
-        Mock Disconnect-MicrosoftTeams { }
-        Mock Get-CsOnlineUser { [pscustomobject]@{ Identity = 'cs-1'; FeatureTypes = @('PhoneSystem'); LineUri = $null; OnlineVoiceRoutingPolicy = $null; OnlineVoicemailPolicy = $null } }
-        Mock Get-CsPhoneNumberAssignment { $null }
-        Mock Set-CsPhoneNumberAssignment { throw 'dry-run must not write' }
-        Mock Grant-CsOnlineVoiceRoutingPolicy { throw 'dry-run must not write' }
-        Mock Grant-CsOnlineVoicemailPolicy { throw 'dry-run must not write' }
-        Mock Get-CsOnlineVoicemailUserSettings { [pscustomobject]@{ VoicemailEnabled = $false; PromptLanguage = 'en-US' } }
-        Mock Set-CsOnlineVoicemailUserSettings { throw 'dry-run must not write' }
-        Mock Get-CsUserCallingSettings { [pscustomobject]@{ IsUnansweredEnabled = $false; UnansweredDelay = '00:00:30'; UnansweredTargetType = $null; UnansweredTarget = $null } }
-        Mock Set-CsUserCallingSettings { throw 'dry-run must not write' }
+        Mock Connect-OnbTeams { [pscustomobject]@{ Account = $script:TestAppId; TenantId = $script:TestTenantId; Token = $script:TestToken } }
+        Mock Disconnect-OnbTeams { }
+        Mock Invoke-OnbTeams { throw 'dry-run must not write' }
+        Mock Invoke-OnbTeams -ParameterFilter { $Command -eq 'Get-CsOnlineUser' } {
+            [pscustomobject]@{ Identity = 'cs-1'; FeatureTypes = @('PhoneSystem'); LineUri = $null; OnlineVoiceRoutingPolicy = $null; OnlineVoicemailPolicy = $null }
+        }
+        Mock Invoke-OnbTeams -ParameterFilter { $Command -eq 'Get-CsPhoneNumberAssignment' } { $null }
+        Mock Invoke-OnbTeams -ParameterFilter { $Command -eq 'Get-CsOnlineVoicemailUserSettings' } { [pscustomobject]@{ VoicemailEnabled = $false; PromptLanguage = 'en-US' } }
+        Mock Invoke-OnbTeams -ParameterFilter { $Command -eq 'Get-CsUserCallingSettings' } {
+            [pscustomobject]@{ IsUnansweredEnabled = $false; UnansweredDelay = '00:00:30'; UnansweredTargetType = $null; UnansweredTarget = $null }
+        }
     }
 
     It '<Step> plans changes and leaks no token, tenant, app id or thumbprint' -TestCases @(

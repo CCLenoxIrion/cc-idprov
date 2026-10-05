@@ -47,7 +47,7 @@ function Invoke-TeamsForwarding {
     }
 
     Invoke-OnbCloudSession -Service Teams -In $In -Body {
-        $settings = Get-CsUserCallingSettings -Identity $upn -ErrorAction Stop
+        $settings = Invoke-OnbTeams -Command Get-CsUserCallingSettings -Parameters @{ Identity = $upn; ErrorAction = 'Stop' }
         $current = [bool] $settings.IsUnansweredEnabled -and
             [string] $settings.UnansweredDelay -eq $delay -and
             [string] $settings.UnansweredTargetType -eq $targetType -and
@@ -57,7 +57,9 @@ function Invoke-TeamsForwarding {
         }
 
         Invoke-StepChange -Context $Context -Description ('Weiterleitung bei Nichtannahme nach {0} an {1}' -f $delay, $target) -Action {
-            Set-CsUserCallingSettings -Identity $upn -IsUnansweredEnabled $true -UnansweredDelay $delay -UnansweredTargetType $targetType -UnansweredTarget $target -ErrorAction Stop | Out-Null
+            Invoke-OnbTeams -Command Set-CsUserCallingSettings -Parameters @{
+                Identity = $upn; IsUnansweredEnabled = $true; UnansweredDelay = $delay; UnansweredTargetType = $targetType; UnansweredTarget = $target; ErrorAction = 'Stop'
+            } | Out-Null
         } | Out-Null
         New-StepResult -Context $Context -Status done -Reason ('Weiterleitung nach {0} an {1} eingerichtet.' -f $delay, $target)
     }

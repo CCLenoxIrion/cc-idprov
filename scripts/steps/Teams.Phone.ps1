@@ -37,14 +37,14 @@ function Invoke-TeamsPhone {
             return New-StepResult -Context $Context -Status done -Reason ('Nummer {0} bereits zugewiesen.' -f $number)
         }
 
-        $assignment = Get-CsPhoneNumberAssignment -TelephoneNumber $number -ErrorAction Stop | Select-Object -First 1
+        $assignment = Invoke-OnbTeams -Command Get-CsPhoneNumberAssignment -Parameters @{ TelephoneNumber = $number; ErrorAction = 'Stop' } | Select-Object -First 1
         if ($null -ne $assignment -and -not [string]::IsNullOrEmpty([string] $assignment.AssignedPstnTargetId) -and
             [string] $assignment.AssignedPstnTargetId -ne [string] $user.Identity) {
             return New-StepResult -Context $Context -Status failed -Code 'number-in-use' -Reason ('Nummer {0} ist bereits einem anderen Benutzer zugewiesen.' -f $number)
         }
 
         Invoke-StepChange -Context $Context -Description ('Nummer {0} ({1}) zuweisen' -f $number, $type) -Action {
-            Set-CsPhoneNumberAssignment -Identity $upn -PhoneNumber $number -PhoneNumberType $type -ErrorAction Stop | Out-Null
+            Invoke-OnbTeams -Command Set-CsPhoneNumberAssignment -Parameters @{ Identity = $upn; PhoneNumber = $number; PhoneNumberType = $type; ErrorAction = 'Stop' } | Out-Null
         } | Out-Null
         New-StepResult -Context $Context -Status done -Reason ('Nummer {0} ({1}) zugewiesen.' -f $number, $type)
     }

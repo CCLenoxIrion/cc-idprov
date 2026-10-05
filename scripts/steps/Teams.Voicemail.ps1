@@ -48,15 +48,17 @@ function Invoke-TeamsVoicemail {
         $changes = [System.Collections.Generic.List[string]]::new()
         if ([string] $user.OnlineVoicemailPolicy -ne $policy) {
             Invoke-StepChange -Context $Context -Description ("Voicemail-Policy '{0}' zuweisen" -f $policy) -Action {
-                Grant-CsOnlineVoicemailPolicy -Identity $upn -PolicyName $policy -ErrorAction Stop | Out-Null
+                Invoke-OnbTeams -Command Grant-CsOnlineVoicemailPolicy -Parameters @{ Identity = $upn; PolicyName = $policy; ErrorAction = 'Stop' } | Out-Null
             } | Out-Null
             $changes.Add('Policy')
         }
 
-        $settings = Get-CsOnlineVoicemailUserSettings -Identity $upn -ErrorAction Stop
+        $settings = Invoke-OnbTeams -Command Get-CsOnlineVoicemailUserSettings -Parameters @{ Identity = $upn; ErrorAction = 'Stop' }
         if (-not [bool] $settings.VoicemailEnabled -or [string] $settings.PromptLanguage -ne $language) {
             Invoke-StepChange -Context $Context -Description ('Voicemail aktivieren, Sprache {0}' -f $language) -Action {
-                Set-CsOnlineVoicemailUserSettings -Identity $upn -VoicemailEnabled $true -PromptLanguage $language -DefaultGreetingPromptOverwrite '' -ErrorAction Stop | Out-Null
+                Invoke-OnbTeams -Command Set-CsOnlineVoicemailUserSettings -Parameters @{
+                    Identity = $upn; VoicemailEnabled = $true; PromptLanguage = $language; DefaultGreetingPromptOverwrite = ''; ErrorAction = 'Stop'
+                } | Out-Null
             } | Out-Null
             $changes.Add('Einstellungen')
         }

@@ -94,14 +94,18 @@ function Invoke-OnbCloudSession {
 
     $auth = (Get-CloudInput $In)['auth']
     try {
+        # Out-Null twice (here and in the wrappers): a connection object or token never reaches the result.
         switch ($Service) {
-            'Graph' { Connect-OnbGraph -Auth $auth }
-            'Exchange' { Connect-OnbExchange -Auth $auth -CommandName $CommandName }
-            'Teams' { Connect-OnbTeams -Auth $auth }
+            'Graph' { Connect-OnbGraph -Auth $auth | Out-Null }
+            'Exchange' { Connect-OnbExchange -Auth $auth -CommandName $CommandName | Out-Null }
+            'Teams' { Connect-OnbTeams -Auth $auth | Out-Null }
         }
     }
     catch {
-        throw (New-SafeException -Code 'cloud-auth-failed' ('Anmeldung bei {0} fehlgeschlagen (App-Registrierung, Zertifikat und Rechte prüfen).' -f $Service))
+        # Only the exception type leaves (e.g. ParameterBindingException vs. MsalServiceException),
+        # never the message – it may contain ids or tokens.
+        $type = $_.Exception.GetType().Name
+        throw (New-SafeException -Code 'cloud-auth-failed' ('Anmeldung bei {0} fehlgeschlagen ({1}; App-Registrierung, Zertifikat und Rechte prüfen).' -f $Service, $type))
     }
 
     try {
@@ -243,9 +247,30 @@ function Get-OnbMailbox {
     return Get-EXOMailbox -Identity $Identity -ErrorAction SilentlyContinue
 }
 
+function Invoke-OnbTeams {
+    <#
+    .SYNOPSIS
+        Single call point for the MicrosoftTeams cmdlets used by the steps.
+    .NOTES
+        Tests mock this function, not the module's cmdlets: if MicrosoftTeams is installed, Pester
+        mocks the real cmdlets with their real (version-dependent) parameter metadata, so the
+        tests would depend on the installed module. The command name is restricted to this list.
+    #>
+    param(
+        [Parameter(Mandatory)]
+        [ValidateSet('Get-CsOnlineUser', 'Get-CsPhoneNumberAssignment', 'Set-CsPhoneNumberAssignment',
+            'Grant-CsOnlineVoiceRoutingPolicy', 'Grant-CsOnlineVoicemailPolicy', 'Get-CsOnlineVoicemailUserSettings',
+            'Set-CsOnlineVoicemailUserSettings', 'Get-CsUserCallingSettings', 'Set-CsUserCallingSettings')]
+        [string] $Command,
+        [hashtable] $Parameters = @{}
+    )
+
+    & $Command @Parameters
+}
+
 function Get-OnbCsUser {
     param([Parameter(Mandatory)] [string] $Identity)
-    return Get-CsOnlineUser -Identity $Identity -ErrorAction SilentlyContinue
+    return Invoke-OnbTeams -Command Get-CsOnlineUser -Parameters @{ Identity = $Identity; ErrorAction = 'SilentlyContinue' }
 }
 
 #endregion

@@ -31,7 +31,7 @@ function Invoke-TeamsVoiceRouting {
         }
 
         Invoke-StepChange -Context $Context -Description ("Voice-Routing-Policy '{0}' zuweisen" -f $policy) -Action {
-            Grant-CsOnlineVoiceRoutingPolicy -Identity $upn -PolicyName $policy -ErrorAction Stop | Out-Null
+            Invoke-OnbTeams -Command Grant-CsOnlineVoiceRoutingPolicy -Parameters @{ Identity = $upn; PolicyName = $policy; ErrorAction = 'Stop' } | Out-Null
         } | Out-Null
         New-StepResult -Context $Context -Status done -Reason ("Voice-Routing-Policy '{0}' zugewiesen." -f $policy)
     }
