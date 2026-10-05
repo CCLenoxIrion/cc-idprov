@@ -15,7 +15,8 @@ public sealed partial class ScriptStepExecutor(
     IntegrationMode mode,
     ScriptOptions options,
     IProcessRunner runner,
-    ILogger<ScriptStepExecutor> logger) : IStepExecutor
+    ILogger<ScriptStepExecutor> logger,
+    CloudOptions? cloud = null) : IStepExecutor
 {
     private const int MaxReasonLength = 1000;
     private const int MaxLoggedStderr = 2000;
@@ -29,12 +30,13 @@ public sealed partial class ScriptStepExecutor(
     public async Task<StepOutcome> ExecuteAsync(StepContext context, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(context);
-        var input = StepScriptJson.BuildInput(context, StepKey, Mode == IntegrationMode.DryRun, options);
+        var input = StepScriptJson.BuildInput(context, StepKey, Mode == IntegrationMode.DryRun, options, cloud);
         var json = JsonSerializer.Serialize(input, StepScriptJson.Options);
         var script = Path.Combine(options.ScriptsDirectory, "steps", StepKey + ".ps1");
         string[] arguments = ["-NoProfile", "-NonInteractive", "-File", script];
 
-        var result = await runner.RunAsync(options.PwshPath, arguments, json, options.Timeout, cancellationToken).ConfigureAwait(false);
+        var timeout = options.TimeoutFor(StepKey);
+        var result = await runner.RunAsync(options.PwshPath, arguments, json, timeout, cancellationToken).ConfigureAwait(false);
         if (!string.IsNullOrWhiteSpace(result.StandardError))
         {
             LogStderr(logger, StepKey, Redact(Truncate(result.StandardError, MaxLoggedStderr), input.InitialPassword));
@@ -42,7 +44,7 @@ public sealed partial class ScriptStepExecutor(
 
         if (result.TimedOut)
         {
-            return StepOutcome.Waiting($"Skript nach {options.Timeout} abgebrochen; neuer Versuch folgt.", "script-timeout");
+            return StepOutcome.Waiting($"Skript nach {timeout} abgebrochen; neuer Versuch folgt.", "script-timeout");
         }
 
         if (result.ExitCode != 0)

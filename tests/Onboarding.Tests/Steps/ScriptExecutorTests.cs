@@ -260,7 +260,8 @@ public sealed class ScriptExecutorTests
     }
 
     [Theory]
-    [InlineData("Real", "Real")] // cloud scripts only in 4b
+    [InlineData("Real", "Real")] // cloud without Integrations:Cloud
+    [InlineData("Fake", "DryRun")] // cloud real with fake AD
     [InlineData("Banane", "Fake")]
     public void Invalid_modes_fail_at_startup(string onPrem, string cloud)
     {

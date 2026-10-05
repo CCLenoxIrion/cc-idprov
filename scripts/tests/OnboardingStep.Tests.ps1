@@ -53,6 +53,30 @@ Describe 'Get-SafeErrorReason' {
         (Get-SafeError (New-SafeException 'Ohne Code.')).code | Should -Be 'invalid-input'
     }
 
+    It 'carries the status of transient safe errors (waiting)' {
+        $safe = Get-SafeError (New-SafeException -Status waiting -Code 'graph-throttled' 'Graph vorübergehend nicht verfügbar.')
+        $safe.status | Should -Be 'waiting'
+        $safe.code | Should -Be 'graph-throttled'
+        (Get-SafeError (New-SafeException 'x')).status | Should -Be 'failed'
+        (Get-SafeError ([System.Exception]::new('roh'))).status | Should -Be 'failed'
+    }
+
+    It 'Invoke-StepMain keeps the waiting status of a safe error' {
+        $handler = { param($In, $Context) throw (New-SafeException -Status waiting -Code 'graph-throttled' 'später erneut') }
+        $json = (New-TestStepInput) | ConvertTo-Json -Depth 10
+        $original = [Console]::Out
+        $writer = [System.IO.StringWriter]::new()
+        try {
+            [Console]::SetOut($writer)
+            Invoke-StepMain -Handler $handler -Json $json
+        }
+        finally { [Console]::SetOut($original) }
+
+        $result = $writer.ToString().Trim() | ConvertFrom-Json
+        $result.status | Should -Be 'waiting'
+        $result.code | Should -Be 'graph-throttled'
+    }
+
     It 'rejects malformed codes on safe exceptions' {
         { New-SafeException -Code 'Kein Code!' 'x' } | Should -Throw
     }

@@ -310,8 +310,8 @@ public sealed class ReadIntegrationRegistrationTests
         Assert.Throws<InvalidOperationException>(() => Register((key, value)));
 
     [Fact]
-    public void Real_licenses_are_not_available_before_phase_4b() =>
-        Assert.Throws<NotSupportedException>(() => Register(("Integrations:Read:Licenses", "Real")));
+    public void Legacy_licenses_key_fails_at_startup() =>
+        Assert.Throws<InvalidOperationException>(() => Register(("Integrations:Read:Licenses", "Fake")));
 
     [Fact]
     public void Fake_is_the_default() =>

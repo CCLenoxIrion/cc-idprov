@@ -28,4 +28,12 @@ public static class StepKeys
 
     /// <summary>Waits until accountEnabled = true in Entra (dynamic groups, DECISIONS S9).</summary>
     public const string EntraWaitEnabled = "Entra.WaitEnabled";
+
+    /// <summary>All onboarding step keys, e.g. to validate configuration that refers to them.</summary>
+    public static IReadOnlyList<string> All { get; } =
+    [
+        AdCreateUser, AdGroups, HomeFolder, HomeShare, LogonScript, SyncDelta, EntraWaitUser, EntraUsageLocation,
+        EntraAssignLicense, EntraWaitLicense, ExoWaitMailbox, ExoDisableNewOutlook, ExoSharedMailboxes, TeamsWaitUser,
+        TeamsPhone, TeamsVoiceRouting, TeamsVoicemail, TeamsForwarding, AdEnable, SyncDeltaAfterEnable, EntraWaitEnabled,
+    ];
 }

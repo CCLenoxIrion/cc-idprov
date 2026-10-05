@@ -24,6 +24,10 @@ public sealed class StepScriptInput
     public required ScriptConfig Config { get; init; }
     public ScriptLogonScript? LogonScript { get; init; }
 
+    /// <summary>Cloud steps only (phase 4b).</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public ScriptCloud? Cloud { get; init; }
+
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? InitialPassword { get; init; }
 
@@ -62,6 +66,59 @@ public sealed class ScriptJeaConfig
     public required string SyncConfigurationName { get; init; }
 }
 
+/// <summary>Input of the cloud steps. Values come from the request's configuration snapshot.</summary>
+public sealed class ScriptCloud
+{
+    public required ScriptCloudAuth Auth { get; init; }
+    public required string Upn { get; init; }
+    public required string UsageLocation { get; init; }
+    public required string LicenseMode { get; init; }
+    public required IReadOnlyList<string> Skus { get; init; }
+    public required IReadOnlyList<string> DisabledServicePlans { get; init; }
+    public string? PhoneE164 { get; init; }
+    public required bool OneWinNativeOutlookEnabled { get; init; }
+    public required IReadOnlyList<ScriptSharedMailbox> SharedMailboxes { get; init; }
+    public required ScriptTeams Teams { get; init; }
+
+    /// <summary>Return a ManualTask with the command instead of connecting (DECISIONS X13).</summary>
+    public required bool ManualOnly { get; init; }
+}
+
+/// <summary>Identifiers of the app registration – no secret; the key stays in the certificate store.</summary>
+public sealed class ScriptCloudAuth
+{
+    public required string TenantId { get; init; }
+    public required string AppId { get; init; }
+    public required string CertificateThumbprint { get; init; }
+    public required string Organization { get; init; }
+}
+
+public sealed class ScriptSharedMailbox
+{
+    public required string Mailbox { get; init; }
+    public required bool FullAccess { get; init; }
+    public required bool AutoMapping { get; init; }
+    public required bool SendAs { get; init; }
+}
+
+public sealed class ScriptTeams
+{
+    public required string VoiceRoutingPolicy { get; init; }
+    public required string VoicemailPolicy { get; init; }
+    public required string PromptLanguage { get; init; }
+    public required string PhoneNumberType { get; init; }
+    public required bool Voicemail { get; init; }
+    public required ScriptForward Forward { get; init; }
+}
+
+public sealed class ScriptForward
+{
+    public required bool Enabled { get; init; }
+    public required int DelaySeconds { get; init; }
+    public required string TargetType { get; init; }
+    public required string Target { get; init; }
+}
+
 public sealed class ScriptLogonScript
 {
     public required string ContentBase64 { get; init; }
@@ -98,8 +155,48 @@ public sealed class ScriptOptions
     /// <summary>Hard limit per script run; the process tree is killed afterwards.</summary>
     public TimeSpan Timeout { get; set; } = TimeSpan.FromMinutes(4);
 
+    /// <summary>
+    /// Longer limits per step-key prefix, e.g. <c>"Teams.": "00:10:00"</c> (the MicrosoftTeams
+    /// module loads slowly). The longest matching prefix wins.
+    /// </summary>
+    public Dictionary<string, TimeSpan> TimeoutOverrides { get; set; } = new(StringComparer.Ordinal);
+
     public string DcConfigurationName { get; set; } = "CC.Onboarding";
     public string SyncConfigurationName { get; set; } = "CC.Onboarding.Sync";
+
+    public TimeSpan TimeoutFor(string stepKey) =>
+        TimeoutOverrides
+            .Where(o => stepKey.StartsWith(o.Key, StringComparison.Ordinal))
+            .OrderByDescending(o => o.Key.Length)
+            .Select(o => (TimeSpan?)o.Value)
+            .FirstOrDefault() ?? Timeout;
+
+    /// <summary>Longest possible script run (base timeout or any override).</summary>
+    public TimeSpan MaxTimeout => TimeoutOverrides.Values.Append(Timeout).Max();
+
+    /// <summary>Throws a configuration error for non-positive limits or prefixes matching no step.</summary>
+    public void Validate(IEnumerable<string> stepKeys)
+    {
+        ArgumentNullException.ThrowIfNull(stepKeys);
+        var keys = stepKeys.ToList();
+        if (Timeout <= TimeSpan.Zero)
+        {
+            throw new InvalidOperationException("Integrations:Scripts:Timeout must be positive.");
+        }
+
+        foreach (var (prefix, limit) in TimeoutOverrides)
+        {
+            if (limit <= TimeSpan.Zero)
+            {
+                throw new InvalidOperationException($"Integrations:Scripts:TimeoutOverrides '{prefix}' must be positive.");
+            }
+
+            if (prefix.Length == 0 || !keys.Any(k => k.StartsWith(prefix, StringComparison.Ordinal)))
+            {
+                throw new InvalidOperationException($"Integrations:Scripts:TimeoutOverrides '{prefix}' matches no step key.");
+            }
+        }
+    }
 }
 
 public static class StepScriptJson
@@ -110,7 +207,7 @@ public static class StepScriptJson
     };
 
     /// <summary>Builds the stdin payload for a step. Paths are deliberately not included.</summary>
-    public static StepScriptInput BuildInput(StepContext context, string stepKey, bool dryRun, ScriptOptions options)
+    public static StepScriptInput BuildInput(StepContext context, string stepKey, bool dryRun, ScriptOptions options, CloudOptions? cloud = null)
     {
         ArgumentNullException.ThrowIfNull(context);
         ArgumentNullException.ThrowIfNull(options);
@@ -162,7 +259,51 @@ public static class StepScriptJson
                 },
             },
             LogonScript = logon,
+            Cloud = cloud is not null && StepGroups.GroupOf(stepKey) == StepGroups.Cloud ? BuildCloud(context, stepKey, cloud) : null,
             InitialPassword = password?.Reveal(),
+        };
+    }
+
+    private static ScriptCloud BuildCloud(StepContext context, string stepKey, CloudOptions cloud)
+    {
+        var global = context.Snapshot.Global;
+        var department = context.Snapshot.Department;
+        var forward = department.Teams.UnansweredForward;
+        return new ScriptCloud
+        {
+            Auth = new ScriptCloudAuth
+            {
+                TenantId = cloud.TenantId,
+                AppId = cloud.AppId,
+                CertificateThumbprint = cloud.CertificateThumbprint,
+                Organization = cloud.ExchangeOrganization,
+            },
+            Upn = context.Identity.UserPrincipalName,
+            UsageLocation = global.UsageLocation,
+            LicenseMode = global.LicenseMode.ToString(),
+            Skus = StepValues.Skus(context),
+            DisabledServicePlans = department.Licenses.DisabledServicePlans,
+            PhoneE164 = context.Identity.PhoneE164,
+            OneWinNativeOutlookEnabled = global.OneWinNativeOutlookEnabled,
+            SharedMailboxes = department.SharedMailboxes
+                .Select(m => new ScriptSharedMailbox { Mailbox = m.Mailbox, FullAccess = m.FullAccess, AutoMapping = m.AutoMapping, SendAs = m.SendAs })
+                .ToList(),
+            Teams = new ScriptTeams
+            {
+                VoiceRoutingPolicy = global.Teams.VoiceRoutingPolicy,
+                VoicemailPolicy = global.Teams.VoicemailPolicy,
+                PromptLanguage = global.Teams.VoicemailPromptLanguage,
+                PhoneNumberType = global.Teams.PhoneNumberType,
+                Voicemail = department.Teams.Voicemail,
+                Forward = new ScriptForward
+                {
+                    Enabled = forward.Enabled,
+                    DelaySeconds = (int)forward.Delay.TotalSeconds,
+                    TargetType = forward.TargetType,
+                    Target = forward.Target,
+                },
+            },
+            ManualOnly = cloud.ManualSteps.Contains(stepKey, StringComparer.Ordinal),
         };
     }
 }

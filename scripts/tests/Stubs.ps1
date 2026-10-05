@@ -19,6 +19,30 @@ $stubs = @{
     'New-SmbShare'               = 'param($Name, $Path, $ChangeAccess, $FullAccess, $ErrorAction)'
     'Grant-SmbShareAccess'       = 'param($Name, $AccountName, $AccessRight, [switch] $Force, $ErrorAction)'
     'Start-ADSyncSyncCycle'      = 'param($PolicyType, $ErrorAction)'
+    # Cloud (phase 4b)
+    'Connect-MgGraph'                    = 'param($ClientId, $TenantId, $CertificateThumbprint, [switch] $NoWelcome, $ErrorAction)'
+    'Disconnect-MgGraph'                 = 'param($ErrorAction)'
+    'Invoke-MgGraphRequest'              = 'param($Method, $Uri, $Body, $ContentType, $Headers, $OutputType, $ErrorAction)'
+    'Connect-ExchangeOnline'             = 'param($AppId, $CertificateThumbprint, $Organization, [switch] $ShowBanner, $CommandName, $ErrorAction)'
+    'Disconnect-ExchangeOnline'          = 'param([switch] $Confirm, $ErrorAction)'
+    'Get-EXOMailbox'                     = 'param($Identity, $ErrorAction)'
+    'Get-CASMailbox'                     = 'param($Identity, $ErrorAction)'
+    'Set-CASMailbox'                     = 'param($Identity, $OneWinNativeOutlookEnabled, $ErrorAction)'
+    'Get-MailboxPermission'              = 'param($Identity, $User, $ErrorAction)'
+    'Add-MailboxPermission'              = 'param($Identity, $User, $AccessRights, $AutoMapping, [switch] $Confirm, $ErrorAction)'
+    'Get-RecipientPermission'            = 'param($Identity, $Trustee, $ErrorAction)'
+    'Add-RecipientPermission'            = 'param($Identity, $Trustee, $AccessRights, [switch] $Confirm, $ErrorAction)'
+    'Connect-MicrosoftTeams'             = 'param($ApplicationId, $CertificateThumbprint, $TenantId, $ErrorAction)'
+    'Disconnect-MicrosoftTeams'          = 'param($ErrorAction)'
+    'Get-CsOnlineUser'                   = 'param($Identity, $ErrorAction)'
+    'Get-CsPhoneNumberAssignment'        = 'param($TelephoneNumber, $ErrorAction)'
+    'Set-CsPhoneNumberAssignment'        = 'param($Identity, $PhoneNumber, $PhoneNumberType, $ErrorAction)'
+    'Grant-CsOnlineVoiceRoutingPolicy'   = 'param($Identity, $PolicyName, $ErrorAction)'
+    'Grant-CsOnlineVoicemailPolicy'      = 'param($Identity, $PolicyName, $ErrorAction)'
+    'Get-CsOnlineVoicemailUserSettings'  = 'param($Identity, $ErrorAction)'
+    'Set-CsOnlineVoicemailUserSettings'  = 'param($Identity, $VoicemailEnabled, $PromptLanguage, $DefaultGreetingPromptOverwrite, $ErrorAction)'
+    'Get-CsUserCallingSettings'          = 'param($Identity, $ErrorAction)'
+    'Set-CsUserCallingSettings'          = 'param($Identity, $IsUnansweredEnabled, $UnansweredDelay, $UnansweredTargetType, $UnansweredTarget, $ErrorAction)'
 }
 
 foreach ($name in $stubs.Keys) {
@@ -42,6 +66,21 @@ namespace Microsoft.ActiveDirectory.Management {
 '@
 }
 
+if (-not ('OnbTest.FakeGraphHttpException' -as [type])) {
+    # Shape of the Graph SDK's HTTP error: Exception.Response.StatusCode (ZU VERIFIZIEREN gegen das Modul).
+    Add-Type -TypeDefinition @'
+namespace OnbTest {
+    public class FakeGraphResponse { public System.Net.HttpStatusCode StatusCode { get; set; } }
+    public class FakeGraphHttpException : System.Exception {
+        public FakeGraphHttpException(int status, string message) : base(message) {
+            Response = new FakeGraphResponse { StatusCode = (System.Net.HttpStatusCode)status };
+        }
+        public FakeGraphResponse Response { get; private set; }
+    }
+}
+'@
+}
+
 function Invoke-StepHandler {
     <# Runs a step handler like Invoke-StepMain does: an exception becomes a sanitized failed result. #>
     param([scriptblock] $Handler, [hashtable] $In, $Context)
@@ -50,7 +89,7 @@ function Invoke-StepHandler {
     }
     catch {
         $safe = Get-SafeError $_
-        New-StepResult -Context $Context -Status failed -Code $safe.code -Reason $safe.reason
+        New-StepResult -Context $Context -Status $safe.status -Code $safe.code -Reason $safe.reason
     }
 }
 
@@ -102,5 +141,41 @@ function New-TestStepInput {
         }
     }
     if ($Step -eq 'AD.CreateUser') { $in['initialPassword'] = $Password }
+    if ($Step -match '^(Entra|EXO|Teams)\.') { $in['cloud'] = New-TestCloudInput }
     return $in
+}
+
+# Values that must never appear in any step output (E5).
+$script:TestTenantId = '11111111-1111-1111-1111-111111111111'
+$script:TestAppId = '22222222-2222-2222-2222-222222222222'
+$script:TestThumbprint = '0123456789ABCDEF0123456789ABCDEF01234567'
+$script:TestToken = 'eyJ0eXAiOiJKV1QiLCJhbGciOiJSUzI1NiJ9.GEHEIMER-TOKEN'
+
+function New-TestCloudInput {
+    <# Cloud block like the C# StepScriptJson.BuildCloud. #>
+    return @{
+        auth                       = @{
+            tenantId              = $script:TestTenantId
+            appId                 = $script:TestAppId
+            certificateThumbprint = $script:TestThumbprint
+            organization          = 'example.onmicrosoft.com'
+        }
+        upn                        = 'l.irion@example.test'
+        usageLocation              = 'DE'
+        licenseMode                = 'Direct'
+        skus                       = @('SPB', 'MCOEV')
+        disabledServicePlans       = @()
+        phoneE164                  = '+49123456781'
+        oneWinNativeOutlookEnabled = $false
+        sharedMailboxes            = @(@{ mailbox = 'team@example.test'; fullAccess = $true; autoMapping = $true; sendAs = $true })
+        teams                      = @{
+            voiceRoutingPolicy = 'Routing-Test'
+            voicemailPolicy    = 'Voicemail-Test'
+            promptLanguage     = 'de-DE'
+            phoneNumberType    = 'DirectRouting'
+            voicemail          = $true
+            forward            = @{ enabled = $true; delaySeconds = 20; targetType = 'singleTarget'; target = 'hotline@example.test' }
+        }
+        manualOnly                 = $false
+    }
 }

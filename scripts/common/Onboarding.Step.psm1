@@ -22,6 +22,7 @@ Set-StrictMode -Version Latest
 
 $script:SafeMarker = 'OnbSafeMessage'
 $script:SafeCode = 'OnbSafeCode'
+$script:SafeStatus = 'OnbSafeStatus'
 $script:CodePattern = '^[a-z][a-z0-9-]{1,48}$'
 
 function New-StepContext {
@@ -60,12 +61,15 @@ function New-SafeException {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory, Position = 0)] [string] $Message,
-        [ValidatePattern('^[a-z][a-z0-9-]{1,48}$')] [string] $Code = 'invalid-input'
+        [ValidatePattern('^[a-z][a-z0-9-]{1,48}$')] [string] $Code = 'invalid-input',
+        # 'waiting' for transient conditions (e.g. Graph throttling): the worker retries with backoff.
+        [ValidateSet('failed', 'waiting', 'needsInput')] [string] $Status = 'failed'
     )
 
     $exception = [System.InvalidOperationException]::new($Message)
     $exception.Data[$script:SafeMarker] = $true
     $exception.Data[$script:SafeCode] = $Code
+    $exception.Data[$script:SafeStatus] = $Status
     return $exception
 }
 
@@ -86,7 +90,8 @@ function Get-SafeError {
 
     if ($exception.Data.Contains($script:SafeMarker)) {
         $code = if ($exception.Data.Contains($script:SafeCode)) { [string] $exception.Data[$script:SafeCode] } else { 'invalid-input' }
-        return [pscustomobject]@{ code = $code; reason = $exception.Message }
+        $status = if ($exception.Data.Contains($script:SafeStatus)) { [string] $exception.Data[$script:SafeStatus] } else { 'failed' }
+        return [pscustomobject]@{ status = $status; code = $code; reason = $exception.Message }
     }
 
     $typeName = $exception.GetType().FullName
@@ -100,14 +105,26 @@ function Get-SafeError {
         'System.Management.Automation.CommandNotFoundException'                 = @('command-missing', 'Benötigter Befehl nicht verfügbar (Modul installiert?).')
     }
     if ($known.ContainsKey($typeName)) {
-        return [pscustomobject]@{ code = $known[$typeName][0]; reason = $known[$typeName][1] }
+        return [pscustomobject]@{ status = 'failed'; code = $known[$typeName][0]; reason = $known[$typeName][1] }
     }
 
-    if ($typeName -like 'Microsoft.ActiveDirectory.Management.*') {
-        return [pscustomobject]@{ code = 'ad-error'; reason = ('AD-Operation fehlgeschlagen ({0}).' -f $exception.GetType().Name) }
+    # Cloud modules: map by namespace, never return their messages (may contain tokens or ids).
+    $families = @(
+        @('Microsoft.ActiveDirectory.Management.*', 'ad-error', 'AD-Operation fehlgeschlagen ({0}).')
+        @('Microsoft.Identity.Client.*', 'cloud-auth-failed', 'Anmeldung der App-Registrierung fehlgeschlagen ({0}).')
+        @('Azure.Identity.*', 'cloud-auth-failed', 'Anmeldung der App-Registrierung fehlgeschlagen ({0}).')
+        @('Microsoft.Graph.*', 'graph-error', 'Graph-Anfrage fehlgeschlagen ({0}).')
+        @('Microsoft.Exchange.*', 'exo-error', 'Exchange-Online-Operation fehlgeschlagen ({0}).')
+        @('Microsoft.Teams.*', 'teams-error', 'Teams-Operation fehlgeschlagen ({0}).')
+        @('Microsoft.Rtc.*', 'teams-error', 'Teams-Operation fehlgeschlagen ({0}).')
+    )
+    foreach ($family in $families) {
+        if ($typeName -like $family[0]) {
+            return [pscustomobject]@{ status = 'failed'; code = $family[1]; reason = ($family[2] -f $exception.GetType().Name) }
+        }
     }
 
-    return [pscustomobject]@{ code = 'unexpected-error'; reason = ('Unerwarteter Fehler ({0}).' -f $exception.GetType().Name) }
+    return [pscustomobject]@{ status = 'failed'; code = 'unexpected-error'; reason = ('Unerwarteter Fehler ({0}).' -f $exception.GetType().Name) }
 }
 
 function Get-SafeErrorReason {
@@ -208,7 +225,7 @@ function Invoke-StepMain {
     }
     catch {
         $safe = Get-SafeError $_
-        $result = New-StepResult -Context $context -Status failed -Code $safe.code -Reason $safe.reason
+        $result = New-StepResult -Context $context -Status $safe.status -Code $safe.code -Reason $safe.reason
     }
 
     $json = ConvertTo-StepJson $result
