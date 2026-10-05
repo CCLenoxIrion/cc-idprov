@@ -9,6 +9,7 @@
     <ProjectReference Include="..\..\src\Onboarding.Data\Onboarding.Data.csproj" />
     <ProjectReference Include="..\..\src\Onboarding.Steps\Onboarding.Steps.csproj" />
     <ProjectReference Include="..\..\src\Onboarding.Web\Onboarding.Web.csproj" />
+    <ProjectReference Include="..\..\src\Onboarding.Worker\Onboarding.Worker.csproj" />
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="bunit" />

@@ -20,7 +20,7 @@ public sealed class StepPlanTests
         var keys = typeof(StepKeys).GetFields().Select(f => (string)f.GetValue(null)!).ToHashSet();
 
         Assert.Equal(keys, plan.Select(s => s.Key).ToHashSet());
-        Assert.Equal(19, plan.Count);
+        Assert.Equal(21, plan.Count);
 
         var seen = new HashSet<string>();
         foreach (var step in plan)
@@ -54,7 +54,7 @@ public sealed class StepPlanTests
         var request = _f.Approved(TestConfig.Person(extension: "12"));
 
         Assert.Empty(Skipped(request));
-        Assert.Equal(19, request.Steps.Count);
+        Assert.Equal(21, request.Steps.Count);
     }
 
     [Fact]

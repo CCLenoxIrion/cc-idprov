@@ -1,0 +1,33 @@
+@* Buttons for one checklist item: done, not applicable (with mandatory note), reset. *@
+
+@if (Item.Status == ChecklistItemStatus.Open)
+{
+    <button class="btn btn-sm btn-outline-success" disabled="@Busy" @onclick="() => OnSet.InvokeAsync(new(ChecklistItemStatus.Done, null))">Erledigt</button>
+    @if (_askNote)
+    {
+        <div class="input-group input-group-sm mt-1">
+            <input class="form-control" placeholder="Notiz (Pflicht)" @bind="_note" />
+            <button class="btn btn-outline-secondary" disabled="@(Busy || string.IsNullOrWhiteSpace(_note))"
+                    @onclick="() => OnSet.InvokeAsync(new(ChecklistItemStatus.NotApplicable, _note))">OK</button>
+        </div>
+    }
+    else
+    {
+        <button class="btn btn-sm btn-outline-secondary" @onclick="() => { _askNote = true; _note = string.Empty; }">Nicht zutreffend</button>
+    }
+}
+else
+{
+    <button class="btn btn-sm btn-outline-secondary" disabled="@Busy" @onclick="() => OnSet.InvokeAsync(new(ChecklistItemStatus.Open, null))">Zurücksetzen</button>
+}
+
+@code {
+    [Parameter, EditorRequired] public ChecklistItem Item { get; set; } = default!;
+    [Parameter] public bool Busy { get; set; }
+    [Parameter] public EventCallback<ChecklistChange> OnSet { get; set; }
+
+    private bool _askNote;
+    private string _note = "";
+
+    public sealed record ChecklistChange(ChecklistItemStatus Status, string? Note);
+}

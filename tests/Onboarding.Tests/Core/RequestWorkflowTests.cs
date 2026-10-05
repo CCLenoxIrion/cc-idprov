@@ -90,7 +90,7 @@ public sealed class RequestWorkflowTests
         Assert.Equal("it.admin", request.ApprovedBy);
         Assert.NotNull(request.ConfigSnapshot);
         Assert.Equal([1, 2, 3], request.EncryptedInitialPassword);
-        Assert.Equal(19, request.Steps.Count);
+        Assert.Equal(21, request.Steps.Count);
         Assert.Equal(AdCreateUser, request.Steps.OrderBy(s => s.SortOrder).First().StepKey);
     }
 
@@ -371,14 +371,29 @@ public sealed class RequestWorkflowTests
     }
 
     [Fact]
-    public void Initial_password_is_cleared_only_after_create_user()
+    public void Initial_password_is_deleted_when_create_user_is_done()
+    {
+        var request = _f.Approved();
+        Assert.NotNull(request.EncryptedInitialPassword);
+
+        W.ClaimStep(request, request.FindStep(AdCreateUser)!);
+        var audits = W.ApplyStepOutcome(request, AdCreateUser, Onboarding.Core.Steps.StepOutcome.NeedsInput("fremdes Konto"));
+        Assert.NotNull(request.EncryptedInitialPassword); // stays while NeedsInput (P4)
+
+        W.RetryStep(request, AdCreateUser, Admin);
+        W.ClaimStep(request, request.FindStep(AdCreateUser)!);
+        audits = W.ApplyStepOutcome(request, AdCreateUser, Onboarding.Core.Steps.StepOutcome.Done());
+
+        Assert.Null(request.EncryptedInitialPassword);
+        Assert.Contains(audits, a => a.Action == AuditActions.InitialPasswordDeleted);
+    }
+
+    [Fact]
+    public void Initial_password_is_deleted_on_cancel()
     {
         var request = _f.Approved();
 
-        Assert.Throws<WorkflowException>(() => RequestWorkflow.ClearInitialPassword(request));
-
-        _f.CompleteStep(request, AdCreateUser);
-        RequestWorkflow.ClearInitialPassword(request);
+        W.Cancel(request, Admin, "doch nicht");
 
         Assert.Null(request.EncryptedInitialPassword);
     }

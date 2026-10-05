@@ -32,6 +32,12 @@ public sealed class RequestStep : IVersioned
     /// <summary>Skip reason, manual-task instructions or the reason for "mark as done".</summary>
     public string? Note { get; internal set; }
 
+    /// <summary>Set by "Überschreiben" (DECISIONS L3): the next run may replace an existing target.</summary>
+    public bool ForceRequested { get; internal set; }
+
+    /// <summary>When the step first entered Waiting in its current run; audit only on that change (P3).</summary>
+    public DateTimeOffset? WaitingSince { get; internal set; }
+
     public long Version { get; set; }
 
     internal void TransitionTo(StepStatus target, DateTimeOffset now)

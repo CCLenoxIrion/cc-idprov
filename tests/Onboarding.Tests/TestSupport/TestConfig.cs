@@ -31,6 +31,7 @@ internal static class TestConfig
         UsageLocation = "DE",
         LicenseMode = LicenseMode.Direct,
         TimeZone = "Europe/Berlin",
+        RequestIdAttribute = "extensionAttribute15",
         EnableLeadTime = TimeSpan.Zero,
         Execution = new ExecutionConfig
         {

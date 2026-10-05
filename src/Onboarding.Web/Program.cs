@@ -15,8 +15,10 @@ builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddScoped<CurrentUser>();
 builder.Services.AddScoped<IActorAccessor>(sp => sp.GetRequiredService<CurrentUser>());
 
-var connectionString = builder.Configuration.GetConnectionString("Onboarding")
-                       ?? throw new InvalidOperationException("ConnectionStrings:Onboarding is not configured.");
+var connectionString = OnboardingDataExtensions.ResolveConnectionString(
+    builder.Configuration.GetConnectionString("Onboarding")
+        ?? throw new InvalidOperationException("ConnectionStrings:Onboarding is not configured."),
+    builder.Environment.ContentRootPath);
 builder.Services.AddDbContextFactory<OnboardingDbContext>(
     (sp, options) => options.UseOnboardingSqlite(
         connectionString, sp.GetRequiredService<IActorAccessor>(), sp.GetRequiredService<TimeProvider>()),
@@ -30,7 +32,8 @@ builder.Services.AddSecretProtection(
     {
         using var db = sp.GetRequiredService<IDbContextFactory<OnboardingDbContext>>().CreateDbContext();
         return db.GlobalConfig.AsNoTracking().Single().Settings.PasswordCertThumbprint;
-    });
+    },
+    builder.Environment.ContentRootPath);
 
 builder.Services.AddScoped(sp => new RequestWorkflow(sp.GetRequiredService<TimeProvider>()));
 builder.Services.AddScoped<RequestService>();

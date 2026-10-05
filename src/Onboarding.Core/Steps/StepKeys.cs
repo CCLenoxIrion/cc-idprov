@@ -22,4 +22,10 @@ public static class StepKeys
     public const string TeamsVoicemail = "Teams.Voicemail";
     public const string TeamsForwarding = "Teams.Forwarding";
     public const string AdEnable = "AD.Enable";
+
+    /// <summary>Delta sync right after enabling, so Entra sees accountEnabled = true on day one (DECISIONS S9).</summary>
+    public const string SyncDeltaAfterEnable = "Sync.DeltaAfterEnable";
+
+    /// <summary>Waits until accountEnabled = true in Entra (dynamic groups, DECISIONS S9).</summary>
+    public const string EntraWaitEnabled = "Entra.WaitEnabled";
 }

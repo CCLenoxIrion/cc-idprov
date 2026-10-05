@@ -51,6 +51,7 @@ public sealed class RequestServiceTests : IDisposable
     public async Task Create_and_submit_persists_request_checklist_and_audit()
     {
         var (_, id) = await SubmittedAsync();
+        _host.SignInAdmin();
 
         var details = (await _host.Requests.GetDetailsAsync(id))!;
 
@@ -68,6 +69,7 @@ public sealed class RequestServiceTests : IDisposable
         _host.SignInHr();
 
         var id = await _host.Requests.CreateAsync(WebTestHost.Input(departmentId, "Martin", "Schmidt", extension: null), submit: true);
+        _host.SignInAdmin();
 
         var details = (await _host.Requests.GetDetailsAsync(id))!;
         Assert.Equal(RequestStatus.NeedsInput, details.Request.Status);
@@ -85,7 +87,7 @@ public sealed class RequestServiceTests : IDisposable
         var details = (await _host.Requests.GetDetailsAsync(id))!;
         Assert.Equal(RequestStatus.Approved, details.Request.Status);
         Assert.Equal([0xEE, (byte)Password.Length], details.Request.EncryptedInitialPassword);
-        Assert.Equal(19, details.Request.Steps.Count);
+        Assert.Equal(21, details.Request.Steps.Count);
         Assert.Equal("Vertrieb", details.Request.ConfigSnapshot!.Department.Name);
         Assert.DoesNotContain(details.Audit, a => (a.Details ?? "").Contains(Password, StringComparison.Ordinal));
     }
@@ -168,7 +170,7 @@ public sealed class RequestServiceTests : IDisposable
         var rows = await _host.Requests.GetOverviewAsync(new OverviewFilter());
 
         var lenox = rows.Single(r => r.Id == id);
-        Assert.Equal(19, lenox.StepsTotal);
+        Assert.Equal(21, lenox.StepsTotal);
         Assert.Equal(0, lenox.StepsDone); // nothing skipped: extension, voicemail and forwarding configured
         Assert.Equal("0/7", $"{lenox.ChecklistDone}/{lenox.ChecklistTotal}");
         Assert.Equal(2, lenox.DaysToDeadline);
@@ -177,6 +179,57 @@ public sealed class RequestServiceTests : IDisposable
 
         var onlyNeedsInput = await _host.Requests.GetOverviewAsync(new OverviewFilter(Status: RequestStatus.NeedsInput));
         Assert.Equal([anna], onlyNeedsInput.Select(r => r.Id));
+    }
+
+    [Fact]
+    public async Task Requester_gets_summary_without_technical_details()
+    {
+        var (_, id) = await SubmittedAsync();
+        _host.SignInAdmin("it.admin2");
+        await _host.Requests.ApproveAsync(id, new SecretString(Password));
+        _host.SignInHr();
+
+        await Assert.ThrowsAsync<UserFacingException>(() => _host.Requests.GetDetailsAsync(id));
+        var summary = (await _host.Requests.GetSummaryAsync(id))!;
+
+        Assert.Equal(RequestStatus.Approved, summary.Status);
+        Assert.Equal(21, summary.StepsTotal);
+        Assert.Equal(2, summary.DaysToDeadline);
+        Assert.Equal(7, summary.Checklist.Count);
+        // The DTO type itself carries no steps, errors, audit or derived identity.
+        Assert.DoesNotContain(typeof(RequestSummary).GetProperties(), p =>
+            p.Name is "Steps" or "Audit" or "Derived" or "LastError" or "Request");
+    }
+
+    [Fact]
+    public async Task Requester_may_load_own_draft_details_for_editing()
+    {
+        var departmentId = await _host.CreateDepartmentAsync();
+        _host.SignInHr();
+        var id = await _host.Requests.CreateAsync(WebTestHost.Input(departmentId), submit: false);
+
+        Assert.NotNull(await _host.Requests.GetDetailsAsync(id));
+    }
+
+    [Fact]
+    public async Task Past_entry_date_requires_confirmation_and_is_audited()
+    {
+        var departmentId = await _host.CreateDepartmentAsync();
+        _host.SignInHr();
+        var input = WebTestHost.Input(departmentId);
+        input.EffectiveDate = new DateOnly(2026, 9, 28);
+
+        Assert.True(await _host.Requests.IsInPastAsync(input.EffectiveDate));
+        await Assert.ThrowsAsync<UserFacingException>(() => _host.Requests.CreateAsync(input, submit: true));
+
+        var id = await _host.Requests.CreateAsync(input, submit: true, pastDateConfirmed: true);
+        _host.SignInAdmin("it.admin2");
+        await _host.Requests.ApproveAsync(id, new SecretString(Password));
+
+        var details = (await _host.Requests.GetDetailsAsync(id))!;
+        Assert.Contains(details.Audit, a => a.Action == AuditActions.PastEffectiveDateConfirmed && a.Actor == "hr.mueller");
+        // AD.Enable is due immediately.
+        Assert.True(details.Request.FindStep(AdEnable)!.NextAttemptAt <= _host.Time.GetUtcNow());
     }
 
     [Fact]

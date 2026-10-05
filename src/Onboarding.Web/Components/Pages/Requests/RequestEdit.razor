@@ -70,12 +70,25 @@
             </div>
             <div class="col-md-3">
                 <label class="form-label">Eintrittsdatum *</label>
-                <input class="form-control" type="date" @bind="_date" />
+                <input class="form-control" type="date" @bind="_date" @bind:after="DateChangedAsync" />
             </div>
             <div class="col-md-3">
                 <label class="form-label">Durchwahl</label>
                 <input class="form-control" inputmode="numeric" maxlength="4" @bind="_input.Extension" @bind:after="PreviewAsync" />
             </div>
+
+            @if (_pastDate)
+            {
+                <div class="col-12">
+                    <div class="alert alert-warning py-2 mb-0">
+                        Das Eintrittsdatum liegt in der Vergangenheit (Nachmeldung). Das Konto wird nach der Einrichtung sofort aktiviert.
+                        <div class="form-check mt-1">
+                            <input class="form-check-input" type="checkbox" id="pastConfirmed" @bind="_pastConfirmed" />
+                            <label class="form-check-label" for="pastConfirmed">Ich bestätige das Eintrittsdatum in der Vergangenheit.</label>
+                        </div>
+                    </div>
+                </div>
+            }
 
             <div class="col-12">
                 <label class="form-label">Vorgesetzte(r) *</label>
@@ -193,6 +206,8 @@
     private Onboarding.Core.Directory.DirectoryUser? _manager;
     private FormPreview? _preview;
     private List<string> _errors = [];
+    private bool _pastDate;
+    private bool _pastConfirmed;
 
     protected override async Task OnInitializedAsync()
     {
@@ -215,9 +230,19 @@
                 EffectiveDate = i.EffectiveDate, Extension = i.Extension,
             };
             _date = i.EffectiveDate;
+            await DateChangedAsync();
             _manager = details.Manager;
             _mailEdited = true;
             await PreviewAsync();
+        }
+    }
+
+    private async Task DateChangedAsync()
+    {
+        _pastDate = _date is { } date && await Requests.IsInPastAsync(date);
+        if (!_pastDate)
+        {
+            _pastConfirmed = false;
         }
     }
 
@@ -302,6 +327,10 @@
         {
             errors.Add("Eintrittsdatum ist ein Pflichtfeld.");
         }
+        else if (_pastDate && !_pastConfirmed)
+        {
+            errors.Add("Eintrittsdatum in der Vergangenheit bitte bestätigen.");
+        }
 
         if (IdentityValidator.ValidateExtension(_input.Extension?.Trim()) is { } extensionError)
         {
@@ -319,6 +348,7 @@
 
     private async Task SaveAsync(bool submit)
     {
+        await DateChangedAsync();
         await PreviewAsync();
         _errors = Validate();
         if (_errors.Count > 0)
@@ -334,11 +364,11 @@
         {
             if (Id is { } existing)
             {
-                await Requests.UpdateDraftAsync(existing, _input, submit);
+                await Requests.UpdateDraftAsync(existing, _input, submit, _pastConfirmed);
             }
             else
             {
-                id = await Requests.CreateAsync(_input, submit);
+                id = await Requests.CreateAsync(_input, submit, _pastConfirmed);
             }
         });
         if (ok)

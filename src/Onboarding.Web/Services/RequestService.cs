@@ -51,6 +51,26 @@ public sealed record OverviewRow(
                              Status is not (RequestStatus.Completed or RequestStatus.Cancelled);
 }
 
+/// <summary>
+/// Restricted view for requesters (DECISIONS W9): status, progress, deadline, checklist – no step
+/// errors, no audit log, no technical values.
+/// </summary>
+public sealed record RequestSummary(
+    Guid Id,
+    string Name,
+    RequestType Type,
+    RequestStatus Status,
+    string AreaName,
+    string DepartmentName,
+    DateOnly EffectiveDate,
+    int DaysToDeadline,
+    int StepsDone,
+    int StepsTotal,
+    string CreatedBy,
+    DateTimeOffset CreatedAt,
+    bool ChecklistEditable,
+    IReadOnlyList<ChecklistItem> Checklist);
+
 public sealed record RequestDetails(
     Request Request,
     string AreaName,
@@ -109,14 +129,28 @@ public sealed class RequestService(
         return new FormPreview(check.Identity, check.Issues, warnings, licenses);
     }
 
-    public async Task<Guid> CreateAsync(PersonInput input, bool submit, CancellationToken ct = default)
+    /// <summary>True if the entry date lies before today in the configured time zone (DECISIONS W10).</summary>
+    public async Task<bool> IsInPastAsync(DateOnly date, CancellationToken ct = default)
+    {
+        await using var db = await dbFactory.CreateDbContextAsync(ct);
+        var global = (await db.GlobalConfig.AsNoTracking().SingleAsync(ct)).Settings;
+        return date < BusinessCalendar.Today(timeProvider.GetUtcNow(), global.TimeZone);
+    }
+
+    public async Task<Guid> CreateAsync(PersonInput input, bool submit, bool pastDateConfirmed = false, CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(input);
         var actor = await currentUser.GetAsync();
         await using var db = await dbFactory.CreateDbContextAsync(ct);
+        var pastDate = await RequirePastDateConfirmationAsync(db, input.EffectiveDate, pastDateConfirmed, ct);
         var templates = await db.ChecklistTemplates.AsNoTracking().ToListAsync(ct);
         var (request, audit) = Run(() => workflow.Create(RequestType.Onboarding, input, actor, templates));
         var audits = new List<AuditEntry> { audit };
+        if (pastDate)
+        {
+            audits.Add(PastDateAudit(actor, request.Id, input.EffectiveDate));
+        }
+
         if (submit)
         {
             audits.AddRange(await SubmitInternalAsync(db, request, actor, ct));
@@ -128,11 +162,17 @@ public sealed class RequestService(
         return request.Id;
     }
 
-    public Task UpdateDraftAsync(Guid id, PersonInput input, bool submit, CancellationToken ct = default) =>
+    public Task UpdateDraftAsync(Guid id, PersonInput input, bool submit, bool pastDateConfirmed = false, CancellationToken ct = default) =>
         MutateAsync(id, async (db, request, actor) =>
         {
+            var pastDate = await RequirePastDateConfirmationAsync(db, input.EffectiveDate, pastDateConfirmed, ct);
             var templates = await db.ChecklistTemplates.AsNoTracking().ToListAsync(ct);
             var audits = new List<AuditEntry>(workflow.UpdateDraft(request, actor, input, templates));
+            if (pastDate)
+            {
+                audits.Add(PastDateAudit(actor, request.Id, input.EffectiveDate));
+            }
+
             if (submit)
             {
                 audits.AddRange(await SubmitInternalAsync(db, request, actor, ct));
@@ -218,13 +258,23 @@ public sealed class RequestService(
         MutateAsync(id, (_, request, actor) =>
             Task.FromResult(workflow.SetChecklistItemStatus(request, itemId, status, note, actor)), ct);
 
+    /// <summary>
+    /// Full details incl. steps, errors and audit log: ITAdmin only; requesters get their own
+    /// drafts (for editing). Everything else uses <see cref="GetSummaryAsync"/> (DECISIONS W9).
+    /// </summary>
     public async Task<RequestDetails?> GetDetailsAsync(Guid id, CancellationToken ct = default)
     {
+        var actor = await currentUser.GetAsync();
         await using var db = await dbFactory.CreateDbContextAsync(ct);
         var request = await db.Requests.AsNoTracking().SingleOrDefaultAsync(r => r.Id == id, ct);
         if (request is null)
         {
             return null;
+        }
+
+        if (!actor.IsITAdmin && !(request.Status == RequestStatus.Draft && request.CreatedBy == actor.Name))
+        {
+            throw new UserFacingException("Die vollständige Detailansicht ist ITAdmins vorbehalten.");
         }
 
         var area = await db.Areas.AsNoTracking().Where(a => a.Id == request.Input.AreaId).Select(a => a.Name).SingleOrDefaultAsync(ct);
@@ -235,6 +285,40 @@ public sealed class RequestService(
             : await directoryBrowser.GetUserAsync(request.Input.ManagerObjectGuid, ct);
         return new RequestDetails(request, area ?? "?", department ?? "?", manager, audit);
     }
+
+    public async Task<RequestSummary?> GetSummaryAsync(Guid id, CancellationToken ct = default)
+    {
+        var actor = await currentUser.GetAsync();
+        await using var db = await dbFactory.CreateDbContextAsync(ct);
+        var request = await db.Requests.AsNoTracking().SingleOrDefaultAsync(r => r.Id == id, ct);
+        if (request is null)
+        {
+            return null;
+        }
+
+        var global = (await db.GlobalConfig.AsNoTracking().SingleAsync(ct)).Settings;
+        var area = await db.Areas.AsNoTracking().Where(a => a.Id == request.Input.AreaId).Select(a => a.Name).SingleOrDefaultAsync(ct);
+        var department = await db.Departments.AsNoTracking().Where(d => d.Id == request.Input.DepartmentId).Select(d => d.Name).SingleOrDefaultAsync(ct);
+        var today = BusinessCalendar.Today(timeProvider.GetUtcNow(), global.TimeZone);
+        return new RequestSummary(
+            request.Id,
+            $"{request.Input.FirstName} {request.Input.LastName}",
+            request.Type,
+            request.Status,
+            area ?? "?",
+            department ?? "?",
+            request.Input.EffectiveDate,
+            request.Input.EffectiveDate.DayNumber - today.DayNumber,
+            request.Steps.Count(s => StepStateMachine.SatisfiesDependency(s.Status)),
+            request.Steps.Count,
+            request.CreatedBy,
+            request.CreatedAt,
+            !request.IsClosed && RequestWorkflow.CanEditChecklist(request),
+            request.Checklist.OrderBy(c => c.SortOrder).ToList());
+    }
+
+    public Task ForceStepAsync(Guid id, string stepKey, string reason, CancellationToken ct = default) =>
+        MutateAsync(id, (_, request, actor) => Task.FromResult(workflow.ForceStep(request, stepKey, actor, reason)), ct);
 
     public async Task<IReadOnlyList<OverviewRow>> GetOverviewAsync(OverviewFilter filter, CancellationToken ct = default)
     {
@@ -310,6 +394,22 @@ public sealed class RequestService(
 
     public Task<DirectoryUser?> GetManagerAsync(Guid objectGuid, CancellationToken ct = default) =>
         directoryBrowser.GetUserAsync(objectGuid, ct);
+
+    private async Task<bool> RequirePastDateConfirmationAsync(OnboardingDbContext db, DateOnly date, bool confirmed, CancellationToken ct)
+    {
+        var global = (await db.GlobalConfig.AsNoTracking().SingleAsync(ct)).Settings;
+        var inPast = date < BusinessCalendar.Today(timeProvider.GetUtcNow(), global.TimeZone);
+        if (inPast && !confirmed)
+        {
+            throw new UserFacingException("Das Eintrittsdatum liegt in der Vergangenheit. Bitte ausdrücklich bestätigen.");
+        }
+
+        return inPast;
+    }
+
+    private AuditEntry PastDateAudit(Actor actor, Guid requestId, DateOnly date) =>
+        AuditEntry.Create(timeProvider.GetUtcNow(), actor.Name, AuditActions.PastEffectiveDateConfirmed, AuditResults.Success,
+            requestId, details: $"Eintrittsdatum {date:dd.MM.yyyy} liegt in der Vergangenheit (Nachmeldung); AD.Enable ist sofort fällig.");
 
     private async Task<IReadOnlyList<AuditEntry>> SubmitInternalAsync(OnboardingDbContext db, Request request, Actor actor, CancellationToken ct)
     {

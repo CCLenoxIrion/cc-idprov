@@ -11,12 +11,14 @@ public static class StepStateMachine
         new Dictionary<StepStatus, FrozenSet<StepStatus>>
         {
             [Pending] = Set(Running, Skipped),
-            [Running] = Set(Done, Waiting, Failed, Skipped, ManualTask),
+            [Running] = Set(Done, Waiting, Failed, Skipped, ManualTask, NeedsInput),
             [Waiting] = Set(Running, Failed),
             // Retry (-> Pending) or "mark as done" with reason (-> Done).
             [Failed] = Set(Pending, Done),
             // An ITAdmin performs the task and marks it done (DECISIONS S2).
             [ManualTask] = Set(Done),
+            // Retry/force (-> Pending) or accept the existing state with reason (-> Done).
+            [NeedsInput] = Set(Pending, Done),
             [Done] = Set(),
             [Skipped] = Set(),
         }.ToFrozenDictionary();

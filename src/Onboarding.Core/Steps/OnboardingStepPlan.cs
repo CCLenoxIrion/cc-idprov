@@ -38,6 +38,8 @@ public sealed class OnboardingStepPlan : IStepPlanProvider
                 ? null
                 : "Rufweiterleitung für die Abteilung deaktiviert.")),
         new(AdEnable, [AdCreateUser], NotBefore: c => EnableAt(c)),
+        new(SyncDeltaAfterEnable, [AdEnable, SyncDelta]),
+        new(EntraWaitEnabled, [SyncDeltaAfterEnable, EntraWaitUser]),
     ];
 
     public RequestType Type => RequestType.Onboarding;

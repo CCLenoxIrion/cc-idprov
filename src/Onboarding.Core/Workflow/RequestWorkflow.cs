@@ -170,6 +170,11 @@ public sealed class RequestWorkflow(TimeProvider timeProvider, StepPlanRegistry 
         request.IdentityOverride = identityOverride;
         request.Derived = recheck.Identity;
         request.NeedsInputReason = null;
+        foreach (var step in request.Steps.Where(s => s.Status == StepStatus.NeedsInput))
+        {
+            ResetForRerun(step);
+        }
+
         request.TransitionTo(request.ApprovedBy is null ? RequestStatus.PendingApproval : RequestStatus.Approved, now);
 
         return
@@ -227,22 +232,190 @@ public sealed class RequestWorkflow(TimeProvider timeProvider, StepPlanRegistry 
         Require(actor.IsITAdmin || ownUnapproved, "Abbrechen nur durch ITAdmin oder Antragsteller vor der Freigabe.");
 
         request.TransitionTo(RequestStatus.Cancelled, Now);
-        return [Audit(actor, request, AuditActions.RequestCancelled, AuditResults.Success, details: reason.Trim())];
+        var audits = new List<AuditEntry> { Audit(actor, request, AuditActions.RequestCancelled, AuditResults.Success, details: reason.Trim()) };
+        audits.AddRange(DeleteInitialPassword(request, "Auftrag abgebrochen"));
+        return audits;
     }
 
-    /// <summary>Failed step → Pending with reset attempts (SPEC §6 "Retry").</summary>
+    /// <summary>Failed or NeedsInput step → Pending with reset attempts (SPEC §6 "Retry").</summary>
     public IReadOnlyList<AuditEntry> RetryStep(Request request, string stepKey, Actor admin)
     {
         var step = AdminStep(request, stepKey, admin);
-        Require(step.Status == StepStatus.Failed, $"Retry nur für fehlgeschlagene Steps (Status {step.Status}).");
+        Require(step.Status is StepStatus.Failed or StepStatus.NeedsInput,
+            $"Retry nur für Steps in Failed/NeedsInput (Status {step.Status}).");
+
+        ResetForRerun(step);
+        var audits = new List<AuditEntry> { Audit(admin, request, AuditActions.StepRetry, AuditResults.Success, stepKey) };
+        audits.AddRange(ApplyEvaluation(request));
+        return audits;
+    }
+
+    /// <summary>
+    /// "Überschreiben" (DECISIONS L3): NeedsInput step → Pending; the next run may replace the
+    /// existing target (e.g. a logon script changed by hand). ITAdmin only, with reason.
+    /// </summary>
+    public IReadOnlyList<AuditEntry> ForceStep(Request request, string stepKey, Actor admin, string reason)
+    {
+        var step = AdminStep(request, stepKey, admin);
+        Require(!string.IsNullOrWhiteSpace(reason), "Begründung erforderlich.");
+        Require(step.Status == StepStatus.NeedsInput, $"Überschreiben nur für Steps in NeedsInput (Status {step.Status}).");
+
+        ResetForRerun(step);
+        step.ForceRequested = true;
+        var audits = new List<AuditEntry> { Audit(admin, request, AuditActions.StepForced, AuditResults.Success, stepKey, reason.Trim()) };
+        audits.AddRange(ApplyEvaluation(request));
+        return audits;
+    }
+
+    /// <summary>
+    /// Worker: claims a due step (→ Running). Audited only when the step starts its run
+    /// (Pending → Running); retries of a waiting step are logged by the worker, not audited (P3).
+    /// The caller saves with the step's concurrency token, so two workers cannot claim the same step.
+    /// </summary>
+    public IReadOnlyList<AuditEntry> ClaimStep(Request request, RequestStep step)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(step);
+        Require(request.Steps.Contains(step), "Step gehört nicht zum Auftrag.");
+        Require(request.Steps.All(s => s.Status != StepStatus.Running), "Pro Auftrag läuft höchstens ein Step gleichzeitig.");
 
         var now = Now;
-        step.TransitionTo(StepStatus.Pending, now);
-        step.Attempts = 0;
-        step.FirstAttemptAt = null;
-        step.NextAttemptAt = null;
+        var starting = step.Status == StepStatus.Pending;
+        step.TransitionTo(StepStatus.Running, now);
+        step.Attempts++;
+        step.FirstAttemptAt ??= now;
+        request.UpdatedAt = now;
 
-        var audits = new List<AuditEntry> { Audit(admin, request, AuditActions.StepRetry, AuditResults.Success, stepKey) };
+        var audits = new List<AuditEntry>();
+        if (starting)
+        {
+            audits.Add(Audit(Actor.System, request, AuditActions.StepStarted, AuditResults.Success, step.StepKey,
+                step.ForceRequested ? "mit Überschreiben" : null));
+        }
+
+        audits.AddRange(ApplyEvaluation(request));
+        return audits;
+    }
+
+    /// <summary>
+    /// Worker: applies an executor outcome to a Running step: status, backoff and step timeout
+    /// (SPEC §6), output, objectGUID, initial password deletion, request status.
+    /// </summary>
+    public IReadOnlyList<AuditEntry> ApplyStepOutcome(Request request, string stepKey, StepOutcome outcome)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(outcome);
+        var step = request.FindStep(stepKey) ?? throw new WorkflowException($"Step {stepKey} nicht gefunden.");
+        Require(step.Status == StepStatus.Running, $"Step {stepKey} läuft nicht (Status {step.Status}).");
+        var execution = request.ConfigSnapshot?.Global.Execution
+                        ?? throw new WorkflowException("Auftrag hat keinen Konfig-Snapshot.");
+
+        var now = Now;
+        var audits = new List<AuditEntry>();
+        var attempts = $"Versuche: {step.Attempts}";
+        step.ForceRequested = false;
+        request.UpdatedAt = now;
+
+        var kind = outcome.Kind;
+        var message = outcome.Message;
+        var policy = BackoffPolicy.FromConfig(execution);
+        if (kind == StepOutcomeKind.Waiting && policy.IsTimedOut(step.FirstAttemptAt ?? now, now))
+        {
+            kind = StepOutcomeKind.Failed;
+            message = $"Timeout nach {policy.Timeout} ohne Erfolg. Letzter Stand: {outcome.Message}";
+        }
+
+        switch (kind)
+        {
+            case StepOutcomeKind.Done:
+                step.TransitionTo(StepStatus.Done, now);
+                step.OutputJson = outcome.OutputJson;
+                step.LastError = null;
+                step.WaitingSince = null;
+                audits.Add(Audit(Actor.System, request, AuditActions.StepFinished, nameof(StepStatus.Done), stepKey,
+                    Join(message, outcome.OutputJson, attempts)));
+                if (outcome.DirectoryObjectGuid is { } guid)
+                {
+                    audits.AddRange(RecordDirectoryObject(request, guid));
+                }
+
+                if (stepKey == StepKeys.AdCreateUser)
+                {
+                    audits.AddRange(DeleteInitialPassword(request, "AD.CreateUser erledigt"));
+                }
+
+                break;
+
+            case StepOutcomeKind.Waiting:
+                step.TransitionTo(StepStatus.Waiting, now);
+                step.LastError = null;
+                step.Note = message;
+                step.NextAttemptAt = now + policy.DelayAfterAttempt(step.Attempts);
+                if (step.WaitingSince is null)
+                {
+                    step.WaitingSince = now;
+                    audits.Add(Audit(Actor.System, request, AuditActions.StepWaiting, nameof(StepStatus.Waiting), stepKey, message));
+                }
+
+                break;
+
+            case StepOutcomeKind.Skipped:
+                step.TransitionTo(StepStatus.Skipped, now);
+                step.Note = message;
+                step.WaitingSince = null;
+                audits.Add(Audit(Actor.System, request, AuditActions.StepFinished, nameof(StepStatus.Skipped), stepKey, Join(message, attempts)));
+                break;
+
+            case StepOutcomeKind.Failed:
+            case StepOutcomeKind.NeedsInput:
+            case StepOutcomeKind.ManualTask:
+                var target = kind switch
+                {
+                    StepOutcomeKind.Failed => StepStatus.Failed,
+                    StepOutcomeKind.NeedsInput => StepStatus.NeedsInput,
+                    _ => StepStatus.ManualTask,
+                };
+                step.TransitionTo(target, now);
+                if (kind == StepOutcomeKind.ManualTask)
+                {
+                    step.Note = message;
+                }
+                else
+                {
+                    step.LastError = message;
+                }
+
+                step.WaitingSince = null;
+                audits.Add(Audit(Actor.System, request, AuditActions.StepFinished,
+                    kind == StepOutcomeKind.Failed ? AuditResults.Failed : target.ToString(), stepKey, Join(message, attempts)));
+                break;
+
+            default:
+                throw new ArgumentOutOfRangeException(nameof(outcome), kind, "Unknown outcome.");
+        }
+
+        audits.AddRange(ApplyEvaluation(request));
+        return audits;
+    }
+
+    /// <summary>
+    /// Worker start: a step left Running by a crash becomes Waiting and due immediately. Safe
+    /// because every step is idempotent (SPEC §6).
+    /// </summary>
+    public IReadOnlyList<AuditEntry> RecoverInterruptedStep(Request request, RequestStep step)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(step);
+        Require(step.Status == StepStatus.Running, $"Step {step.StepKey} läuft nicht.");
+        var now = Now;
+        step.TransitionTo(StepStatus.Waiting, now);
+        step.NextAttemptAt = now;
+        step.WaitingSince ??= now;
+        var audits = new List<AuditEntry>
+        {
+            Audit(Actor.System, request, AuditActions.StepRecovered, AuditResults.Success, step.StepKey,
+                "Worker wurde während der Ausführung beendet; Step wird erneut ausgeführt."),
+        };
         audits.AddRange(ApplyEvaluation(request));
         return audits;
     }
@@ -252,16 +425,22 @@ public sealed class RequestWorkflow(TimeProvider timeProvider, StepPlanRegistry 
     {
         var step = AdminStep(request, stepKey, admin);
         Require(!string.IsNullOrWhiteSpace(reason), "Begründung erforderlich.");
-        Require(step.Status is StepStatus.Failed or StepStatus.ManualTask,
-            $"Als erledigt markieren nur für Failed/ManualTask (Status {step.Status}).");
+        Require(step.Status is StepStatus.Failed or StepStatus.ManualTask or StepStatus.NeedsInput,
+            $"Als erledigt markieren nur für Failed/ManualTask/NeedsInput (Status {step.Status}).");
 
         step.TransitionTo(StepStatus.Done, Now);
         step.Note = reason.Trim();
+        step.WaitingSince = null;
 
         var audits = new List<AuditEntry>
         {
             Audit(admin, request, AuditActions.StepMarkedDone, AuditResults.Success, stepKey, reason.Trim()),
         };
+        if (stepKey == StepKeys.AdCreateUser)
+        {
+            audits.AddRange(DeleteInitialPassword(request, "AD.CreateUser als erledigt markiert"));
+        }
+
         audits.AddRange(ApplyEvaluation(request));
         return audits;
     }
@@ -364,13 +543,35 @@ public sealed class RequestWorkflow(TimeProvider timeProvider, StepPlanRegistry 
         return audits;
     }
 
-    /// <summary>Removes the encrypted initial password once <c>AD.CreateUser</c> is done (SPEC §9).</summary>
-    public static void ClearInitialPassword(Request request)
+    /// <summary>
+    /// Removes the encrypted initial password (SPEC §9): once <c>AD.CreateUser</c> is done or the
+    /// request is cancelled (P4). While AD.CreateUser is in NeedsInput it stays.
+    /// </summary>
+    private List<AuditEntry> DeleteInitialPassword(Request request, string reason)
     {
-        ArgumentNullException.ThrowIfNull(request);
-        Require(request.FindStep(StepKeys.AdCreateUser)?.Status == StepStatus.Done,
-            "Startpasswort wird erst nach AD.CreateUser gelöscht.");
+        if (request.EncryptedInitialPassword is null)
+        {
+            return [];
+        }
+
         request.EncryptedInitialPassword = null;
+        return [Audit(Actor.System, request, AuditActions.InitialPasswordDeleted, AuditResults.Success, details: reason)];
+    }
+
+    private static void ResetForRerun(RequestStep step)
+    {
+        step.TransitionTo(StepStatus.Pending, default);
+        step.Attempts = 0;
+        step.FirstAttemptAt = null;
+        step.NextAttemptAt = null;
+        step.WaitingSince = null;
+        step.ForceRequested = false;
+    }
+
+    private static string? Join(params string?[] parts)
+    {
+        var present = parts.Where(p => !string.IsNullOrWhiteSpace(p)).ToList();
+        return present.Count == 0 ? null : string.Join("; ", present);
     }
 
     private bool ApplyIdentityCheck(Request request, IdentityCheck check, Actor actor, DateTimeOffset now, List<AuditEntry> audits)
@@ -453,8 +654,8 @@ public sealed class RequestWorkflow(TimeProvider timeProvider, StepPlanRegistry 
 
             foreach (var next in RequestStateMachine.AllowedTargets(current))
             {
-                if (next is RequestStatus.NeedsInput or RequestStatus.Cancelled or RequestStatus.PendingApproval ||
-                    !visited.Add(next))
+                var detour = next is RequestStatus.NeedsInput or RequestStatus.Cancelled or RequestStatus.PendingApproval;
+                if ((detour && next != to) || !visited.Add(next))
                 {
                     continue;
                 }

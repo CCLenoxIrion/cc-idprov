@@ -16,7 +16,7 @@
         ({ }, _) => "bg-primary",
         (_, Core.Domain.StepStatus.Done) => "bg-success",
         (_, Core.Domain.StepStatus.Skipped) => "bg-secondary",
-        (_, Core.Domain.StepStatus.Failed) => "bg-danger",
+        (_, Core.Domain.StepStatus.Failed or Core.Domain.StepStatus.NeedsInput) => "bg-danger",
         (_, Core.Domain.StepStatus.ManualTask or Core.Domain.StepStatus.Waiting) => "bg-warning text-dark",
         (_, Core.Domain.StepStatus.Running) => "bg-primary",
         _ => "bg-light text-dark",

@@ -6,17 +6,48 @@ namespace Onboarding.Data;
 
 public static class OnboardingDataExtensions
 {
-    /// <summary>Configures SQLite plus the mandatory save interceptor.</summary>
+    /// <summary>Default SQLite busy timeout (DECISIONS B2).</summary>
+    public static readonly TimeSpan DefaultBusyTimeout = TimeSpan.FromSeconds(10);
+
+    /// <summary>
+    /// Configures SQLite (WAL, busy timeout) plus the mandatory save interceptor. The database
+    /// file must be local to the host running web and worker, never on a network share (B1).
+    /// </summary>
     public static DbContextOptionsBuilder UseOnboardingSqlite(
         this DbContextOptionsBuilder builder,
         string connectionString,
         IActorAccessor actor,
-        TimeProvider timeProvider)
+        TimeProvider timeProvider,
+        TimeSpan? busyTimeout = null)
     {
         ArgumentNullException.ThrowIfNull(builder);
         return builder
-            .UseSqlite(connectionString)
-            .AddInterceptors(new OnboardingSaveChangesInterceptor(actor, timeProvider));
+            .UseSqlite(connectionString, o => o.UseQuerySplittingBehavior(QuerySplittingBehavior.SingleQuery))
+            .AddInterceptors(
+                new SqlitePragmaInterceptor(busyTimeout ?? DefaultBusyTimeout),
+                new OnboardingSaveChangesInterceptor(actor, timeProvider));
+    }
+
+    /// <summary>
+    /// Resolves a relative <c>Data Source</c> against the host's content root, so web and worker
+    /// use the same file regardless of the working directory.
+    /// </summary>
+    public static string ResolveConnectionString(string connectionString, string contentRoot)
+    {
+        var builder = new Microsoft.Data.Sqlite.SqliteConnectionStringBuilder(connectionString);
+        if (builder.DataSource != ":memory:" && !Path.IsPathRooted(builder.DataSource))
+        {
+            builder.DataSource = Path.GetFullPath(Path.Combine(contentRoot, builder.DataSource));
+        }
+
+        return builder.ToString();
+    }
+
+    /// <summary>Full path of the SQLite database file from a connection string (for the worker lock).</summary>
+    public static string DatabaseFilePath(string connectionString)
+    {
+        var builder = new Microsoft.Data.Sqlite.SqliteConnectionStringBuilder(connectionString);
+        return Path.GetFullPath(builder.DataSource);
     }
 
     /// <summary>Configures an already opened SQLite connection (tests, in-memory DBs).</summary>
@@ -28,7 +59,7 @@ public static class OnboardingDataExtensions
     {
         ArgumentNullException.ThrowIfNull(builder);
         return builder
-            .UseSqlite(connection)
+            .UseSqlite(connection, o => o.UseQuerySplittingBehavior(QuerySplittingBehavior.SingleQuery))
             .AddInterceptors(new OnboardingSaveChangesInterceptor(actor, timeProvider));
     }
 }

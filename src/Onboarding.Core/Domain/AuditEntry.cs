@@ -39,6 +39,7 @@ public static class AuditActions
 {
     public const string RequestCreated = "Request.Created";
     public const string DraftUpdated = "Request.DraftUpdated";
+    public const string PastEffectiveDateConfirmed = "Request.PastEffectiveDateConfirmed";
     public const string RequestSubmitted = "Request.Submitted";
     public const string RequestApproved = "Request.Approved";
     public const string RequestCancelled = "Request.Cancelled";
@@ -48,6 +49,12 @@ public static class AuditActions
     public const string SnapshotRefreshed = "Request.SnapshotRefreshed";
     public const string DirectoryObjectRecorded = "Request.DirectoryObjectRecorded";
     public const string StepRetry = "Step.Retry";
+    public const string StepForced = "Step.Forced";
+    public const string StepStarted = "Step.Started";
+    public const string StepWaiting = "Step.Waiting";
+    public const string StepFinished = "Step.Finished";
+    public const string StepRecovered = "Step.Recovered";
+    public const string InitialPasswordDeleted = "Request.InitialPasswordDeleted";
     public const string StepMarkedDone = "Step.MarkedDone";
     public const string ChecklistItemChanged = "Checklist.ItemChanged";
 }

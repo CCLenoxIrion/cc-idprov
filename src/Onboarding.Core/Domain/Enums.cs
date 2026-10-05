@@ -36,6 +36,12 @@ public enum StepStatus
 
     /// <summary>Cannot be automated; an ITAdmin performs it and marks it done.</summary>
     ManualTask,
+
+    /// <summary>
+    /// Target state conflicts with what the step would create (e.g. a logon script changed by
+    /// hand, a foreign account with the same sam). An ITAdmin decides (DECISIONS S10).
+    /// </summary>
+    NeedsInput,
 }
 
 public enum ChecklistItemStatus

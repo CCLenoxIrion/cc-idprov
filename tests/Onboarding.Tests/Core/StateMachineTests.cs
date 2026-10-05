@@ -14,16 +14,18 @@ public sealed class StateMachineTests
         (Running, Waiting), (Running, AwaitingChecklist), (Running, Failed), (Running, NeedsInput), (Running, Cancelled),
         (Waiting, Running), (Waiting, AwaitingChecklist), (Waiting, Failed), (Waiting, NeedsInput), (Waiting, Cancelled),
         (AwaitingChecklist, Completed), (AwaitingChecklist, Running), (AwaitingChecklist, Waiting),
-        (AwaitingChecklist, Failed), (AwaitingChecklist, Cancelled),
-        (Failed, Running), (Failed, Waiting), (Failed, AwaitingChecklist), (Failed, Cancelled),
-        (NeedsInput, PendingApproval), (NeedsInput, Approved), (NeedsInput, Cancelled),
+        (AwaitingChecklist, Failed), (AwaitingChecklist, NeedsInput), (AwaitingChecklist, Cancelled),
+        (Failed, Running), (Failed, Waiting), (Failed, AwaitingChecklist), (Failed, NeedsInput), (Failed, Cancelled),
+        (NeedsInput, PendingApproval), (NeedsInput, Approved), (NeedsInput, Running), (NeedsInput, Waiting),
+        (NeedsInput, AwaitingChecklist), (NeedsInput, Failed), (NeedsInput, Cancelled),
     ];
 
     private static readonly HashSet<(StepStatus, StepStatus)> AllowedStep =
     [
         (StepStatus.Pending, StepStatus.Running), (StepStatus.Pending, StepStatus.Skipped),
         (StepStatus.Running, StepStatus.Done), (StepStatus.Running, StepStatus.Waiting), (StepStatus.Running, StepStatus.Failed),
-        (StepStatus.Running, StepStatus.Skipped), (StepStatus.Running, StepStatus.ManualTask),
+        (StepStatus.Running, StepStatus.Skipped), (StepStatus.Running, StepStatus.ManualTask), (StepStatus.Running, StepStatus.NeedsInput),
+        (StepStatus.NeedsInput, StepStatus.Pending), (StepStatus.NeedsInput, StepStatus.Done),
         (StepStatus.Waiting, StepStatus.Running), (StepStatus.Waiting, StepStatus.Failed),
         (StepStatus.Failed, StepStatus.Pending), (StepStatus.Failed, StepStatus.Done),
         (StepStatus.ManualTask, StepStatus.Done),

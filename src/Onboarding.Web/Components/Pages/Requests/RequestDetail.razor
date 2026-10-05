@@ -10,6 +10,79 @@
 
 <PageTitle>Auftrag</PageTitle>
 
+@if (_actor is { IsITAdmin: false })
+{
+    @* Restricted requester view (DECISIONS W9): no step errors, no audit log, no technical values. *@
+    @if (_summary is null)
+    {
+        <Messages Error="@Error" Info="@Info" />
+        <p>Lädt …</p>
+        return;
+    }
+
+    var s = _summary;
+    var own = s.CreatedBy == _actor.Name;
+    <h1>@s.Name <StatusBadge RequestStatus="s.Status" /></h1>
+    <p class="text-muted small">@s.Type · @s.AreaName · @s.DepartmentName · angelegt von @s.CreatedBy am @Local(s.CreatedAt)</p>
+    <Messages Error="@Error" Info="@Info" />
+
+    @if (own && s.Status == RequestStatus.Draft)
+    {
+        <div class="mb-3">
+            <a class="btn btn-outline-secondary" href="requests/@s.Id/edit">Bearbeiten</a>
+            <button class="btn btn-primary" disabled="@Busy" @onclick="SubmitAsync">Einreichen</button>
+        </div>
+    }
+
+    @if (own && s.Status is RequestStatus.Draft or RequestStatus.PendingApproval)
+    {
+        <div class="input-group input-group-sm mb-3" style="max-width:32rem">
+            <input class="form-control" placeholder="Begründung für Abbruch" @bind="_cancelReason" />
+            <button class="btn btn-outline-danger" disabled="@(Busy || string.IsNullOrWhiteSpace(_cancelReason))" @onclick="CancelAsync">Auftrag abbrechen</button>
+        </div>
+    }
+
+    <dl class="row" style="max-width:40rem" data-testid="summary">
+        <dt class="col-5">Status</dt><dd class="col-7">@s.Status</dd>
+        <dt class="col-5">Fortschritt</dt><dd class="col-7">@(s.StepsTotal == 0 ? "noch nicht freigegeben" : $"{s.StepsDone}/{s.StepsTotal} Steps")</dd>
+        <dt class="col-5">Eintritt (Stichtag)</dt>
+        <dd class="col-7">@s.EffectiveDate.ToString("dd.MM.yyyy") (@(s.DaysToDeadline >= 0 ? $"in {s.DaysToDeadline} Tagen" : $"vor {-s.DaysToDeadline} Tagen"))</dd>
+    </dl>
+    @if (s.Status is RequestStatus.Failed or RequestStatus.NeedsInput)
+    {
+        <div class="alert alert-warning">Die IT klärt einen offenen Punkt bei diesem Auftrag.</div>
+    }
+
+    <h2 class="h5 mt-3">Checkliste</h2>
+    @if (!s.ChecklistEditable)
+    {
+        <p class="small text-muted">Abhakbar, sobald das Konto angelegt ist.</p>
+    }
+    <table class="table table-sm align-middle small" data-testid="checklist">
+        <thead><tr><th>Aufgabe</th><th>Zuständig</th><th>Pflicht</th><th>Status</th><th>Erledigt von</th><th></th></tr></thead>
+        <tbody>
+            @foreach (var item in s.Checklist)
+            {
+                var editable = s.ChecklistEditable && RequestWorkflow.CanTickChecklistItem(_actor, item);
+                <tr class="@(editable ? "" : "text-muted")">
+                    <td>@item.Title<div class="text-muted">@item.Description</div></td>
+                    <td>@item.Responsible</td>
+                    <td>@(item.Mandatory ? "ja" : "nein")</td>
+                    <td>@item.Status @if (item.Note is not null) { <div class="fst-italic">@item.Note</div> }</td>
+                    <td>@item.CompletedBy @(item.CompletedAt is { } at ? Local(at) : "")</td>
+                    <td class="text-nowrap">
+                        @if (editable)
+                        {
+                            <ChecklistActions Item="item" Busy="Busy" OnSet="(args) => SetChecklistAsync(item.Id, args.Status, args.Note)" />
+                        }
+                    </td>
+                </tr>
+            }
+        </tbody>
+    </table>
+    return;
+}
+
 @if (_details is null)
 {
     <Messages Error="@Error" Info="@Info" />
@@ -77,7 +150,7 @@
     </div>
 }
 
-@if (r.Status == RequestStatus.NeedsInput)
+@if (r.Status == RequestStatus.NeedsInput && (r.Steps.Count == 0 || r.FindStep(Onboarding.Core.Steps.StepKeys.AdCreateUser)?.Status == StepStatus.NeedsInput))
 {
     <div class="card border-danger mb-3">
         <div class="card-body">
@@ -186,12 +259,27 @@ else
                         @step.Note
                     </td>
                     <td class="text-nowrap">
-                        @if (_actor.IsITAdmin && !r.IsClosed && step.Status == StepStatus.Failed)
+                        @if (_actor.IsITAdmin && !r.IsClosed && step.Status == StepStatus.NeedsInput)
+                        {
+                            @if (_forceStep == step.StepKey)
+                            {
+                                <div class="input-group input-group-sm mt-1">
+                                    <input class="form-control" placeholder="Begründung" @bind="_forceReason" />
+                                    <button class="btn btn-outline-danger" disabled="@(Busy || string.IsNullOrWhiteSpace(_forceReason))"
+                                            @onclick="() => ForceAsync(step.StepKey)">Überschreiben</button>
+                                </div>
+                            }
+                            else
+                            {
+                                <button class="btn btn-sm btn-outline-danger" @onclick="() => { _forceStep = step.StepKey; _forceReason = string.Empty; }">Überschreiben</button>
+                            }
+                        }
+                        @if (_actor.IsITAdmin && !r.IsClosed && step.Status is StepStatus.Failed or StepStatus.NeedsInput)
                         {
                             <button class="btn btn-sm btn-outline-primary" disabled="@Busy"
                                     @onclick="() => RetryAsync(step.StepKey)">Retry</button>
                         }
-                        @if (_actor.IsITAdmin && !r.IsClosed && step.Status is StepStatus.Failed or StepStatus.ManualTask)
+                        @if (_actor.IsITAdmin && !r.IsClosed && step.Status is StepStatus.Failed or StepStatus.ManualTask or StepStatus.NeedsInput)
                         {
                             @if (_markDoneStep == step.StepKey)
                             {
@@ -203,7 +291,7 @@ else
                             }
                             else
                             {
-                                <button class="btn btn-sm btn-outline-success" @onclick="() => { _markDoneStep = step.StepKey; _markDoneReason = string.Empty; }">Als erledigt markieren</button>
+                                <button class="btn btn-sm btn-outline-success" @onclick="() => { _markDoneStep = step.StepKey; _markDoneReason = string.Empty; }">@(step.Status == StepStatus.NeedsInput ? "Vorhandenes übernehmen" : "Als erledigt markieren")</button>
                             }
                         }
                     </td>
@@ -234,28 +322,7 @@ else
                 <td class="text-nowrap">
                     @if (editable)
                     {
-                        @if (item.Status == ChecklistItemStatus.Open)
-                        {
-                            <button class="btn btn-sm btn-outline-success" disabled="@Busy"
-                                    @onclick="() => Act(() => Requests.SetChecklistItemAsync(r.Id, item.Id, ChecklistItemStatus.Done, null))">Erledigt</button>
-                            @if (_naItem == item.Id)
-                            {
-                                <div class="input-group input-group-sm mt-1">
-                                    <input class="form-control" placeholder="Notiz (Pflicht)" @bind="_naNote" />
-                                    <button class="btn btn-outline-secondary" disabled="@(Busy || string.IsNullOrWhiteSpace(_naNote))"
-                                            @onclick="() => Act(() => Requests.SetChecklistItemAsync(r.Id, item.Id, ChecklistItemStatus.NotApplicable, _naNote))">OK</button>
-                                </div>
-                            }
-                            else
-                            {
-                                <button class="btn btn-sm btn-outline-secondary" @onclick="() => { _naItem = item.Id; _naNote = string.Empty; }">Nicht zutreffend</button>
-                            }
-                        }
-                        else
-                        {
-                            <button class="btn btn-sm btn-outline-secondary" disabled="@Busy"
-                                    @onclick="() => Act(() => Requests.SetChecklistItemAsync(r.Id, item.Id, ChecklistItemStatus.Open, null))">Zurücksetzen</button>
-                        }
+                        <ChecklistActions Item="item" Busy="Busy" OnSet="(args) => SetChecklistAsync(item.Id, args.Status, args.Note)" />
                     }
                 </td>
             </tr>
@@ -292,6 +359,9 @@ else
     [Parameter] public Guid Id { get; set; }
 
     private RequestDetails? _details;
+    private RequestSummary? _summary;
+    private string? _forceStep;
+    private string _forceReason = "";
     private Actor? _actor;
     private TimeZoneInfo _zone = TimeZoneInfo.Utc;
     private Timer? _timer;
@@ -305,8 +375,6 @@ else
     private string _cancelReason = "";
     private string? _markDoneStep;
     private string _markDoneReason = "";
-    private Guid? _naItem;
-    private string _naNote = "";
 
     protected override async Task OnInitializedAsync()
     {
@@ -331,6 +399,17 @@ else
 
     private async Task LoadAsync()
     {
+        if (_actor is { IsITAdmin: false })
+        {
+            _summary = await Requests.GetSummaryAsync(Id);
+            if (_summary is null)
+            {
+                Error = "Auftrag nicht gefunden.";
+            }
+
+            return;
+        }
+
         _details = await Requests.GetDetailsAsync(Id);
         if (_details is null)
         {
@@ -352,7 +431,7 @@ else
     {
         await RunAsync(action, success);
         _markDoneStep = null;
-        _naItem = null;
+        _forceStep = null;
         await LoadAsync();
     }
 
@@ -399,6 +478,12 @@ else
 
     private Task ResolveAsync() =>
         Act(() => Requests.ResolveNeedsInputAsync(Id, _overrideSam, _overrideMail), "Werte übernommen.");
+
+    private Task ForceAsync(string stepKey) =>
+        Act(() => Requests.ForceStepAsync(Id, stepKey, _forceReason), $"{stepKey}: Überschreiben beim nächsten Lauf.");
+
+    private Task SetChecklistAsync(Guid itemId, ChecklistItemStatus status, string? note) =>
+        Act(() => Requests.SetChecklistItemAsync(Id, itemId, status, note));
 
     private Task MarkDoneAsync(string stepKey) =>
         Act(() => Requests.MarkStepDoneAsync(Id, stepKey, _markDoneReason), $"{stepKey} als erledigt markiert.");

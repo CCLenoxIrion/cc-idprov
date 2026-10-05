@@ -71,7 +71,7 @@ public sealed class DataTests : IDisposable
         Assert.Equal("+49746592967812", loaded.Derived.PhoneE164);
         Assert.Equal("Dr.", loaded.Derived.AdditionalAttributes["extensionAttribute1"]);
         Assert.Equal("Vertrieb", loaded.ConfigSnapshot!.Department.Name);
-        Assert.Equal(19, loaded.Steps.Count);
+        Assert.Equal(21, loaded.Steps.Count);
         Assert.Equal(3, loaded.Checklist.Count);
         Assert.Equal(
             new DateTimeOffset(2026, 11, 1, 23, 0, 0, TimeSpan.Zero),

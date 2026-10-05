@@ -16,20 +16,21 @@ public static class RequestStatusEvaluator
     {
         ArgumentNullException.ThrowIfNull(request);
 
-        if (!RequestStateMachine.IsExecuting(request.Status) && request.Status != RequestStatus.Failed)
-        {
-            return request.Status;
-        }
-
         var steps = request.Steps;
-        if (steps.Count == 0)
+        if (steps.Count == 0 || !RequestStateMachine.IsProcessable(request.Status))
         {
+            // Includes NeedsInput before approval (identity), which has no steps yet.
             return request.Status;
         }
 
         if (steps.Any(s => s.Status == StepStatus.Failed))
         {
             return RequestStatus.Failed;
+        }
+
+        if (steps.Any(s => s.Status == StepStatus.NeedsInput))
+        {
+            return RequestStatus.NeedsInput;
         }
 
         if (steps.All(s => StepStateMachine.SatisfiesDependency(s.Status)))
@@ -51,8 +52,11 @@ public static class RequestStatusEvaluator
         }
 
         // Only Pending steps left that are not yet due (e.g. AD.Enable before the entry date).
-        return request.Status == RequestStatus.Approved && steps.All(s => s.Status != StepStatus.Done)
-            ? RequestStatus.Approved
-            : RequestStatus.Running;
+        if (request.Status == RequestStatus.Approved && steps.All(s => s.Status != StepStatus.Done))
+        {
+            return RequestStatus.Approved;
+        }
+
+        return RequestStatus.Running;
     }
 }
