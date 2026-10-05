@@ -200,6 +200,42 @@ public sealed class RequestWorkflowTests
     }
 
     [Fact]
+    public void Requester_may_tick_hr_items_only()
+    {
+        var templates = new[]
+        {
+            new ChecklistTemplate { Id = Guid.NewGuid(), Title = "IT-Punkt", Mandatory = true },
+            new ChecklistTemplate { Id = Guid.NewGuid(), Title = "HR-Punkt", Mandatory = true, Responsible = ChecklistResponsibility.HR },
+        };
+        var request = W.Create(RequestType.Onboarding, TestConfig.Person(), Hr, templates).Request;
+        W.Submit(request, Hr, Check(request.Input));
+        W.Approve(request, Admin, TestConfig.Snapshot(), Check(request.Input), [1]);
+        _f.CompleteStep(request, AdCreateUser);
+        var it = request.Checklist.Single(c => c.Title == "IT-Punkt");
+        var hr = request.Checklist.Single(c => c.Title == "HR-Punkt");
+        Assert.Equal(ChecklistResponsibility.HR, hr.Responsible);
+
+        Assert.Throws<WorkflowException>(() => W.SetChecklistItemStatus(request, it.Id, ChecklistItemStatus.Done, null, Hr));
+        W.SetChecklistItemStatus(request, hr.Id, ChecklistItemStatus.Done, null, Hr);
+        W.SetChecklistItemStatus(request, it.Id, ChecklistItemStatus.Done, null, Admin);
+
+        Assert.Equal("hr.user", hr.CompletedBy);
+        Assert.Equal("it.admin", it.CompletedBy);
+    }
+
+    [Fact]
+    public void Record_directory_object_is_idempotent_and_refuses_other_guid()
+    {
+        var request = _f.Approved();
+        var guid = Guid.NewGuid();
+
+        Assert.Single(W.RecordDirectoryObject(request, guid));
+        Assert.Empty(W.RecordDirectoryObject(request, guid));
+        Assert.Equal(guid, request.DirectoryObjectGuid);
+        Assert.Throws<WorkflowException>(() => W.RecordDirectoryObject(request, Guid.NewGuid()));
+    }
+
+    [Fact]
     public void All_steps_done_with_open_mandatory_items_stays_awaiting_checklist() // AK 7
     {
         var request = _f.Approved();

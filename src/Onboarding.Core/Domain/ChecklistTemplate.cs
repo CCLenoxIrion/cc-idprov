@@ -13,6 +13,7 @@ public sealed class ChecklistTemplate : IVersioned
     public string Title { get; set; } = "";
     public string Description { get; set; } = "";
     public bool Mandatory { get; set; }
+    public ChecklistResponsibility Responsible { get; set; } = ChecklistResponsibility.IT;
     public int SortOrder { get; set; }
     public bool Active { get; set; } = true;
     public long Version { get; set; }

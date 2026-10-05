@@ -12,7 +12,18 @@ public enum DirectoryObjectClass
 }
 
 /// <summary>An object found in AD/Entra/Exchange.</summary>
-public sealed record DirectoryObjectRef(Guid ObjectGuid, DirectoryObjectClass ObjectClass, string DisplayName);
+/// <param name="ObjectGuid">objectGUID (AD) or object id (Entra).</param>
+/// <param name="ObjectClass">Kind of object.</param>
+/// <param name="DisplayName">For messages.</param>
+/// <param name="ProvisionedForRequestId">
+/// Value of the configured request-id attribute (<c>GlobalConfig.RequestIdAttribute</c>), if it
+/// holds a request id (DECISIONS K6).
+/// </param>
+public sealed record DirectoryObjectRef(
+    Guid ObjectGuid,
+    DirectoryObjectClass ObjectClass,
+    string DisplayName,
+    Guid? ProvisionedForRequestId = null);
 
 /// <summary>
 /// Read-only directory queries for collision checks. Implemented in phase 4 against AD/Entra;
@@ -68,19 +79,23 @@ public sealed record Collision(CollisionField Field, string Value, CollisionSour
 
 /// <summary>
 /// Checks sam, mail, UPN, proxyAddresses and phone number against the directory and open
-/// requests (DECISIONS K1–K3). Collisions lead to NeedsInput, never to numbering.
+/// requests (DECISIONS K1–K3). Collisions lead to NeedsInput, never to numbering. The request's
+/// own account (by stored objectGUID or request-id attribute) is not a collision (K6).
 /// </summary>
 public sealed class CollisionChecker(IDirectoryLookup directory, IOpenRequestLookup openRequests)
 {
     public async Task<IReadOnlyList<Collision>> CheckAsync(
         Guid requestId,
         DerivedIdentity identity,
+        Guid? ownDirectoryObjectGuid = null,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(identity);
         var collisions = new List<Collision>();
+        bool Foreign(DirectoryObjectRef hit) =>
+            hit.ObjectGuid != ownDirectoryObjectGuid && hit.ProvisionedForRequestId != requestId;
 
-        foreach (var hit in await directory.FindBySamAccountNameAsync(identity.SamAccountName, cancellationToken).ConfigureAwait(false))
+        foreach (var hit in (await directory.FindBySamAccountNameAsync(identity.SamAccountName, cancellationToken).ConfigureAwait(false)).Where(Foreign))
         {
             collisions.Add(Directory(CollisionField.SamAccountName, identity.SamAccountName, hit));
         }
@@ -106,13 +121,14 @@ public sealed class CollisionChecker(IDirectoryLookup directory, IOpenRequestLoo
 
             var hits = (await directory.FindByMailOrUpnAsync(address, cancellationToken).ConfigureAwait(false))
                 .Concat(await directory.FindProxyAddressOwnersAsync(address, cancellationToken).ConfigureAwait(false))
+                .Where(Foreign)
                 .DistinctBy(h => h.ObjectGuid);
             collisions.AddRange(hits.Select(hit => Directory(field, address, hit)));
         }
 
         if (identity.PhoneE164 is not null)
         {
-            foreach (var hit in await directory.FindByPhoneNumberAsync(identity.PhoneE164, cancellationToken).ConfigureAwait(false))
+            foreach (var hit in (await directory.FindByPhoneNumberAsync(identity.PhoneE164, cancellationToken).ConfigureAwait(false)).Where(Foreign))
             {
                 collisions.Add(Directory(CollisionField.PhoneNumber, identity.PhoneE164, hit));
             }

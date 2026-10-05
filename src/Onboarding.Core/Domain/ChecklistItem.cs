@@ -15,6 +15,7 @@ public sealed class ChecklistItem
     public string Title { get; set; } = "";
     public string Description { get; set; } = "";
     public bool Mandatory { get; set; }
+    public ChecklistResponsibility Responsible { get; set; } = ChecklistResponsibility.IT;
     public int SortOrder { get; set; }
     public ChecklistItemStatus Status { get; private set; } = ChecklistItemStatus.Open;
     public string? CompletedBy { get; private set; }

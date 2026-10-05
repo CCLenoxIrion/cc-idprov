@@ -27,7 +27,10 @@ public enum IdentityIssueCode
 }
 
 /// <summary>Reason why a request needs manual input instead of an automatic derivation.</summary>
-public sealed record IdentityIssue(IdentityIssueCode Code, string Message);
+/// <param name="Code">Kind of issue.</param>
+/// <param name="Message">German text for the UI.</param>
+/// <param name="CollisionField">For <see cref="IdentityIssueCode.Collision"/>: the colliding field.</param>
+public sealed record IdentityIssue(IdentityIssueCode Code, string Message, CollisionField? CollisionField = null);
 
 /// <summary>Result of <see cref="IdentityDeriver.Derive"/>.</summary>
 public sealed record DerivationResult(DerivedIdentity? Identity, IReadOnlyList<IdentityIssue> Issues)
@@ -47,7 +50,7 @@ public sealed record IdentityCheck(DerivedIdentity? Identity, IReadOnlyList<Iden
         ArgumentNullException.ThrowIfNull(derivation);
         ArgumentNullException.ThrowIfNull(collisions);
         var issues = derivation.Issues
-            .Concat(collisions.Select(c => new IdentityIssue(IdentityIssueCode.Collision, c.Description)))
+            .Concat(collisions.Select(c => new IdentityIssue(IdentityIssueCode.Collision, c.Description, c.Field)))
             .ToList();
         return new IdentityCheck(derivation.Identity, issues);
     }

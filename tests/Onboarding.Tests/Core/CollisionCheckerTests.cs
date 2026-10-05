@@ -109,6 +109,31 @@ public sealed class CollisionCheckerTests
     }
 
     [Fact]
+    public async Task Own_account_by_stored_object_guid_is_not_a_collision()
+    {
+        var own = _directory.Add(DirectoryObjectClass.User, "Lenox Irion", sam: "lirion", mail: "l.irion@cleancontrolling.de",
+            upn: "l.irion@cleancontrolling.de", phone: "+49746592967812",
+            "SMTP:l.irion@cleancontrolling.de", "smtp:l.irion@cleancontrolling.com");
+
+        var collisions = await new CollisionChecker(_directory, _directory).CheckAsync(RequestId, Identity(), own.Id);
+
+        Assert.Empty(collisions);
+    }
+
+    [Fact]
+    public async Task Own_account_by_request_id_attribute_is_not_a_collision()
+    {
+        // Account created but objectGUID not stored (crash in between): matched via request-id attribute.
+        _directory.Add(DirectoryObjectClass.User, "Lenox Irion", sam: "lirion", requestId: RequestId);
+        _directory.Add(DirectoryObjectClass.User, "Fremd", sam: "lirion", requestId: Guid.NewGuid());
+
+        var collisions = await Check();
+
+        var collision = Assert.Single(collisions);
+        Assert.Contains("Fremd", collision.Description, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task Collision_leads_to_needs_input()
     {
         _directory.Add(DirectoryObjectClass.User, "Lisa Irion", sam: "lirion");

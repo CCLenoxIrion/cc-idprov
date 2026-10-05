@@ -6,10 +6,8 @@ namespace Onboarding.Core.Steps;
 /// <summary>Input for deciding which steps apply to a request.</summary>
 public sealed record StepPlanContext(PersonInput Input, RequestConfigSnapshot Snapshot)
 {
+    /// <summary>The extension is the only trigger for telephony steps (DECISIONS T1).</summary>
     public bool HasExtension => !string.IsNullOrWhiteSpace(Input.Extension);
-
-    /// <summary>Teams phone steps run only with an extension and if the department assigns phones.</summary>
-    public bool AssignsPhone => HasExtension && Snapshot.Department.Teams.AssignPhone;
 }
 
 /// <summary>

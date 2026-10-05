@@ -1,0 +1,111 @@
+@page "/"
+@attribute [Authorize(Policy = Policies.Requester)]
+@implements IDisposable
+@inject RequestService Requests
+@inject ConfigService Config
+
+<PageTitle>Auftragsübersicht</PageTitle>
+<h1>Auftragsübersicht</h1>
+
+<div class="row g-2 align-items-end mb-3">
+    <div class="col-auto">
+        <label class="form-label small">Status</label>
+        <select class="form-select form-select-sm" @bind="_status" @bind:after="LoadAsync">
+            <option value="">Alle</option>
+            @foreach (var s in Enum.GetValues<RequestStatus>())
+            {
+                <option value="@s">@s</option>
+            }
+        </select>
+    </div>
+    <div class="col-auto">
+        <label class="form-label small">Typ</label>
+        <select class="form-select form-select-sm" @bind="_type" @bind:after="LoadAsync">
+            <option value="">Alle</option>
+            @foreach (var t in Enum.GetValues<RequestType>())
+            {
+                <option value="@t">@t</option>
+            }
+        </select>
+    </div>
+    <div class="col-auto">
+        <label class="form-label small">Bereich</label>
+        <select class="form-select form-select-sm" @bind="_area" @bind:after="LoadAsync">
+            <option value="">Alle</option>
+            @foreach (var a in _areas)
+            {
+                <option value="@a.Id">@a.Name</option>
+            }
+        </select>
+    </div>
+    <div class="col-auto">
+        <label class="form-label small">Datum von</label>
+        <input type="date" class="form-control form-control-sm" @bind="_from" @bind:after="LoadAsync" />
+    </div>
+    <div class="col-auto">
+        <label class="form-label small">bis</label>
+        <input type="date" class="form-control form-control-sm" @bind="_to" @bind:after="LoadAsync" />
+    </div>
+    <div class="col-auto form-check ms-2 mb-1">
+        <input class="form-check-input" type="checkbox" id="closed" @bind="_includeClosed" @bind:after="LoadAsync" />
+        <label class="form-check-label small" for="closed">auch abgeschlossene anzeigen</label>
+    </div>
+</div>
+
+<table class="table table-sm table-hover align-middle" data-testid="overview">
+    <thead>
+        <tr>
+            <th>Name</th><th>Typ</th><th>Bereich</th><th>Abteilung</th><th>Datum</th><th>Status</th>
+            <th>Steps</th><th>Checkliste</th><th>Tage bis Stichtag</th>
+        </tr>
+    </thead>
+    <tbody>
+        @foreach (var row in _rows)
+        {
+            <tr class="@(row.IsCritical ? "table-danger" : row.IsDueSoon ? "table-warning" : "")">
+                <td><a href="requests/@row.Id">@row.Name</a></td>
+                <td>@row.Type</td>
+                <td>@row.Area</td>
+                <td>@row.Department</td>
+                <td>@row.Date.ToString("dd.MM.yyyy")</td>
+                <td><StatusBadge RequestStatus="row.Status" /></td>
+                <td>@(row.StepsTotal == 0 ? "–" : $"{row.StepsDone}/{row.StepsTotal}")</td>
+                <td>@($"{row.ChecklistDone}/{row.ChecklistTotal}")</td>
+                <td>@row.DaysToDeadline</td>
+            </tr>
+        }
+        @if (_rows.Count == 0)
+        {
+            <tr><td colspan="9" class="text-muted">Keine Aufträge.</td></tr>
+        }
+    </tbody>
+</table>
+
+@code {
+    private IReadOnlyList<OverviewRow> _rows = [];
+    private List<AreaConfig> _areas = [];
+    private RequestStatus? _status;
+    private RequestType? _type;
+    private Guid? _area;
+    private DateOnly? _from;
+    private DateOnly? _to;
+    private bool _includeClosed;
+    private Timer? _timer;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _areas = await Config.GetAreasAsync();
+        await LoadAsync();
+        // Steps progress is updated by the worker; refresh periodically.
+        _timer = new Timer(_ => InvokeAsync(async () =>
+        {
+            await LoadAsync();
+            StateHasChanged();
+        }), null, TimeSpan.FromSeconds(15), TimeSpan.FromSeconds(15));
+    }
+
+    private async Task LoadAsync() =>
+        _rows = await Requests.GetOverviewAsync(new OverviewFilter(_status, _type, _area, _from, _to, _includeClosed));
+
+    public void Dispose() => _timer?.Dispose();
+}

@@ -52,6 +52,13 @@ public enum ChecklistScope
     Department,
 }
 
+/// <summary>Who is responsible for a checklist item; requesters may tick HR items only.</summary>
+public enum ChecklistResponsibility
+{
+    IT,
+    HR,
+}
+
 public enum Role
 {
     Requester,

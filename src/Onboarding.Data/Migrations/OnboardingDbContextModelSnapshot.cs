@@ -21,7 +21,6 @@ namespace Onboarding.Data.Migrations
             modelBuilder.Entity("Onboarding.Core.Configuration.AreaConfig", b =>
                 {
                     b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
                         .HasColumnType("TEXT");
 
                     b.Property<bool>("Active")
@@ -97,7 +96,6 @@ namespace Onboarding.Data.Migrations
             modelBuilder.Entity("Onboarding.Core.Configuration.DepartmentConfig", b =>
                 {
                     b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
                         .HasColumnType("TEXT");
 
                     b.Property<bool>("Active")
@@ -184,7 +182,6 @@ namespace Onboarding.Data.Migrations
             modelBuilder.Entity("Onboarding.Core.Domain.ChecklistItem", b =>
                 {
                     b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
                         .HasColumnType("TEXT");
 
                     b.Property<long?>("CompletedAt")
@@ -204,6 +201,11 @@ namespace Onboarding.Data.Migrations
                         .HasColumnType("TEXT");
 
                     b.Property<Guid>("RequestId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Responsible")
+                        .IsRequired()
+                        .HasMaxLength(16)
                         .HasColumnType("TEXT");
 
                     b.Property<int>("SortOrder")
@@ -232,7 +234,6 @@ namespace Onboarding.Data.Migrations
             modelBuilder.Entity("Onboarding.Core.Domain.ChecklistTemplate", b =>
                 {
                     b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
                         .HasColumnType("TEXT");
 
                     b.Property<bool>("Active")
@@ -244,6 +245,11 @@ namespace Onboarding.Data.Migrations
 
                     b.Property<bool>("Mandatory")
                         .HasColumnType("INTEGER");
+
+                    b.Property<string>("Responsible")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("TEXT");
 
                     b.Property<string>("Scope")
                         .IsRequired()
@@ -281,6 +287,7 @@ namespace Onboarding.Data.Migrations
                             Active = true,
                             Description = "",
                             Mandatory = true,
+                            Responsible = "IT",
                             Scope = "Global",
                             SortOrder = 10,
                             Title = "SwissSign-Zertifikat (S/MIME) erstellen",
@@ -293,6 +300,7 @@ namespace Onboarding.Data.Migrations
                             Active = true,
                             Description = "",
                             Mandatory = true,
+                            Responsible = "IT",
                             Scope = "Global",
                             SortOrder = 20,
                             Title = "ILIAS-Konto anlegen",
@@ -305,6 +313,7 @@ namespace Onboarding.Data.Migrations
                             Active = true,
                             Description = "",
                             Mandatory = true,
+                            Responsible = "IT",
                             Scope = "Global",
                             SortOrder = 30,
                             Title = "Mail an HR",
@@ -317,6 +326,7 @@ namespace Onboarding.Data.Migrations
                             Active = true,
                             Description = "",
                             Mandatory = true,
+                            Responsible = "IT",
                             Scope = "Global",
                             SortOrder = 40,
                             Title = "Einladung EDV-Einführung",
@@ -329,6 +339,7 @@ namespace Onboarding.Data.Migrations
                             Active = true,
                             Description = "",
                             Mandatory = true,
+                            Responsible = "IT",
                             Scope = "Global",
                             SortOrder = 50,
                             Title = "MFA einrichten (1Password)",
@@ -341,6 +352,7 @@ namespace Onboarding.Data.Migrations
                             Active = true,
                             Description = "",
                             Mandatory = true,
+                            Responsible = "IT",
                             Scope = "Global",
                             SortOrder = 60,
                             Title = "In Multifunktionsdrucker eintragen",
@@ -353,6 +365,7 @@ namespace Onboarding.Data.Migrations
                             Active = true,
                             Description = "",
                             Mandatory = true,
+                            Responsible = "IT",
                             Scope = "Global",
                             SortOrder = 70,
                             Title = "Rechnerarbeitsplatz einrichten",
@@ -364,7 +377,6 @@ namespace Onboarding.Data.Migrations
             modelBuilder.Entity("Onboarding.Core.Domain.Request", b =>
                 {
                     b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
                         .HasColumnType("TEXT");
 
                     b.Property<long?>("ApprovedAt")
@@ -387,6 +399,9 @@ namespace Onboarding.Data.Migrations
                         .HasColumnType("TEXT");
 
                     b.Property<string>("Derived")
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid?>("DirectoryObjectGuid")
                         .HasColumnType("TEXT");
 
                     b.Property<byte[]>("EncryptedInitialPassword")
@@ -464,7 +479,6 @@ namespace Onboarding.Data.Migrations
             modelBuilder.Entity("Onboarding.Core.Domain.RequestStep", b =>
                 {
                     b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
                         .HasColumnType("TEXT");
 
                     b.Property<int>("Attempts")
@@ -580,7 +594,7 @@ namespace Onboarding.Data.Migrations
                         new
                         {
                             Id = 1,
-                            Settings = "{\"DomainFqdn\":\"CC.local\",\"DomainNetBios\":\"\",\"UpnSuffix\":\"cleancontrolling.de\",\"MailPattern\":\"{firstInitial}.{lastName}@cleancontrolling.de\",\"ProxyAddressTemplates\":[\"SMTP:{mailLocal}@cleancontrolling.de\",\"smtp:{mailLocal}@cleancontrolling.com\"],\"DoctorTitle\":{\"Attribute\":\"extensionAttribute1\",\"Value\":\"Dr.\"},\"PhonePrefixE164\":\"\\u002B497465929678\",\"PhoneDisplayFormat\":\"\\u002B49 7465 929678-{DW}\",\"Home\":{\"Server\":\"DC01\",\"LocalRoot\":\"F:\\\\Home\",\"ShareNamePattern\":\"{sam}$\",\"UncPattern\":\"\\\\\\\\dc01\\\\{sam}$\"},\"LogonScript\":{\"Path\":\"\\\\\\\\dc03\\\\NETLOGON\",\"FileNamePattern\":\"{sam}.bat\"},\"EntraConnectServer\":\"CC01\",\"UsageLocation\":\"DE\",\"LicenseMode\":\"Direct\",\"OneWinNativeOutlookEnabled\":false,\"Teams\":{\"VoiceRoutingPolicy\":\"INTStandard\",\"VoicemailPolicy\":\"CleanControlling Personal Voicemail\",\"VoicemailPromptLanguage\":\"de-DE\",\"PhoneNumberType\":\"DirectRouting\"},\"DisabledUsersOU\":\"\",\"TimeZone\":\"Europe/Berlin\",\"EnableLeadTime\":\"00:00:00\",\"PasswordCertThumbprint\":\"\",\"Execution\":{\"PollInterval\":\"00:01:00\",\"BackoffSchedule\":[\"00:01:00\",\"00:02:00\",\"00:05:00\",\"00:10:00\",\"00:15:00\"],\"StepTimeout\":\"1.00:00:00\"}}",
+                            Settings = "{\"DomainFqdn\":\"CC.local\",\"DomainNetBios\":\"\",\"UpnSuffix\":\"cleancontrolling.de\",\"MailPattern\":\"{firstInitial}.{lastName}@cleancontrolling.de\",\"ProxyAddressTemplates\":[\"SMTP:{mailLocal}@cleancontrolling.de\",\"smtp:{mailLocal}@cleancontrolling.com\"],\"DoctorTitle\":{\"Attribute\":\"extensionAttribute1\",\"Value\":\"Dr.\"},\"PhonePrefixE164\":\"\\u002B497465929678\",\"PhoneDisplayFormat\":\"\\u002B49 7465 929678-{DW}\",\"Home\":{\"Server\":\"DC01\",\"LocalRoot\":\"F:\\\\Home\",\"ShareNamePattern\":\"{sam}$\",\"UncPattern\":\"\\\\\\\\dc01\\\\{sam}$\"},\"LogonScript\":{\"Path\":\"\\\\\\\\dc03\\\\NETLOGON\",\"FileNamePattern\":\"{sam}.bat\"},\"EntraConnectServer\":\"CC01\",\"UsageLocation\":\"DE\",\"LicenseMode\":\"Direct\",\"OneWinNativeOutlookEnabled\":false,\"Teams\":{\"VoiceRoutingPolicy\":\"INTStandard\",\"VoicemailPolicy\":\"CleanControlling Personal Voicemail\",\"VoicemailPromptLanguage\":\"de-DE\",\"PhoneNumberType\":\"DirectRouting\"},\"DisabledUsersOU\":\"\",\"TimeZone\":\"Europe/Berlin\",\"EnableLeadTime\":\"00:00:00\",\"RequestIdAttribute\":\"extensionAttribute15\",\"PasswordCertThumbprint\":\"\",\"Execution\":{\"PollInterval\":\"00:01:00\",\"BackoffSchedule\":[\"00:01:00\",\"00:02:00\",\"00:05:00\",\"00:10:00\",\"00:15:00\"],\"StepTimeout\":\"1.00:00:00\"}}",
                             Version = 0L
                         });
                 });

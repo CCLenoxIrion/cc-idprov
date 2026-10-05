@@ -1,0 +1,15 @@
+<Router AppAssembly="typeof(Program).Assembly" NotFoundPage="typeof(Pages.NotFound)">
+    <Found Context="routeData">
+        <AuthorizeRouteView RouteData="routeData" DefaultLayout="typeof(Layout.MainLayout)">
+            <NotAuthorized>
+                <div class="alert alert-warning m-4">
+                    Keine Berechtigung für diese Seite. Benötigt wird die Rolle <code>Requester</code> oder <code>ITAdmin</code>.
+                </div>
+            </NotAuthorized>
+            <Authorizing>
+                <p class="m-4 text-muted">Anmeldung wird geprüft …</p>
+            </Authorizing>
+        </AuthorizeRouteView>
+        <FocusOnNavigate RouteData="routeData" Selector="h1" />
+    </Found>
+</Router>

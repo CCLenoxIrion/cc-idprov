@@ -38,6 +38,7 @@ public sealed class AuditEntry
 public static class AuditActions
 {
     public const string RequestCreated = "Request.Created";
+    public const string DraftUpdated = "Request.DraftUpdated";
     public const string RequestSubmitted = "Request.Submitted";
     public const string RequestApproved = "Request.Approved";
     public const string RequestCancelled = "Request.Cancelled";
@@ -45,6 +46,7 @@ public static class AuditActions
     public const string NeedsInput = "Request.NeedsInput";
     public const string IdentityResolved = "Request.IdentityResolved";
     public const string SnapshotRefreshed = "Request.SnapshotRefreshed";
+    public const string DirectoryObjectRecorded = "Request.DirectoryObjectRecorded";
     public const string StepRetry = "Step.Retry";
     public const string StepMarkedDone = "Step.MarkedDone";
     public const string ChecklistItemChanged = "Checklist.ItemChanged";

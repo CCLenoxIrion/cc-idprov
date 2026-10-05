@@ -9,9 +9,13 @@ internal sealed class FakeDirectory : IDirectoryLookup, IOpenRequestLookup
     public List<OpenRequestIdentity> OpenRequests { get; } = [];
 
     public FakeObject Add(DirectoryObjectClass objectClass, string name, string? sam = null, string? mail = null,
-        string? upn = null, string? phone = null, params string[] proxyAddresses)
+        string? upn = null, string? phone = null, params string[] proxyAddresses) =>
+        Add(objectClass, name, sam, null, mail, upn, phone, proxyAddresses);
+
+    public FakeObject Add(DirectoryObjectClass objectClass, string name, string? sam, Guid? requestId,
+        string? mail = null, string? upn = null, string? phone = null, params string[] proxyAddresses)
     {
-        var obj = new FakeObject(Guid.NewGuid(), objectClass, name, sam, mail, upn, phone, proxyAddresses);
+        var obj = new FakeObject(Guid.NewGuid(), objectClass, name, sam, mail, upn, phone, proxyAddresses, requestId);
         Objects.Add(obj);
         return obj;
     }
@@ -33,7 +37,7 @@ internal sealed class FakeDirectory : IDirectoryLookup, IOpenRequestLookup
 
     private Task<IReadOnlyList<DirectoryObjectRef>> Find(Func<FakeObject, bool> predicate) =>
         Task.FromResult<IReadOnlyList<DirectoryObjectRef>>(
-            Objects.Where(predicate).Select(o => new DirectoryObjectRef(o.Id, o.ObjectClass, o.Name)).ToList());
+            Objects.Where(predicate).Select(o => new DirectoryObjectRef(o.Id, o.ObjectClass, o.Name, o.RequestId)).ToList());
 
     private static bool Eq(string? a, string b) => string.Equals(a, b, StringComparison.OrdinalIgnoreCase);
 
@@ -45,5 +49,6 @@ internal sealed class FakeDirectory : IDirectoryLookup, IOpenRequestLookup
         string? Mail,
         string? Upn,
         string? Phone,
-        string[] ProxyAddresses);
+        string[] ProxyAddresses,
+        Guid? RequestId);
 }

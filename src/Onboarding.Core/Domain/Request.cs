@@ -32,6 +32,12 @@ public sealed class Request : IVersioned
     /// </summary>
     public byte[]? EncryptedInitialPassword { get; internal set; }
 
+    /// <summary>
+    /// objectGUID of the AD account created for this request, stored right after
+    /// <c>AD.CreateUser</c>. Excluded from collision checks (DECISIONS K6).
+    /// </summary>
+    public Guid? DirectoryObjectGuid { get; internal set; }
+
     public string CreatedBy { get; set; } = "";
     public string? ApprovedBy { get; internal set; }
     public DateTimeOffset CreatedAt { get; set; }

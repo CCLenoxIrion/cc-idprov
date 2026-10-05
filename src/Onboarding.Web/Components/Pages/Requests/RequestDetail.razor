@@ -1,0 +1,409 @@
+@page "/requests/{Id:guid}"
+@attribute [Authorize(Policy = Policies.Requester)]
+@inherits OnboardingComponentBase
+@implements IDisposable
+@using Onboarding.Core.Security
+@using Onboarding.Core.Workflow
+@inject RequestService Requests
+@inject CurrentUser User
+@inject NavigationManager Navigation
+
+<PageTitle>Auftrag</PageTitle>
+
+@if (_details is null)
+{
+    <Messages Error="@Error" Info="@Info" />
+    <p>Lädt …</p>
+    return;
+}
+
+@{
+    var r = _details.Request;
+}
+
+<h1>
+    @r.Input.FirstName @r.Input.LastName
+    <StatusBadge RequestStatus="r.Status" />
+</h1>
+<p class="text-muted small">
+    @r.Type · angelegt von @r.CreatedBy am @Local(r.CreatedAt)
+    @if (r.ApprovedBy is not null)
+    {
+        <span> · freigegeben von @r.ApprovedBy am @Local(r.ApprovedAt!.Value)</span>
+    }
+</p>
+
+<Messages Error="@Error" Info="@Info" />
+
+@* ---------- actions by status ---------- *@
+@if (r.Status == RequestStatus.Draft && (_actor!.IsITAdmin || _actor.Name == r.CreatedBy))
+{
+    <div class="mb-3">
+        <a class="btn btn-outline-secondary" href="requests/@r.Id/edit">Bearbeiten</a>
+        <button class="btn btn-primary" disabled="@Busy" @onclick="SubmitAsync">Einreichen</button>
+    </div>
+}
+
+@if (r.Status == RequestStatus.PendingApproval && _actor!.IsITAdmin)
+{
+    <div class="card border-primary mb-3">
+        <div class="card-body">
+            <h2 class="h5">Freigabe</h2>
+            @if (string.Equals(_actor.Name, r.CreatedBy, StringComparison.OrdinalIgnoreCase))
+            {
+                <p class="mb-0">Vier-Augen-Prinzip: Diesen Auftrag muss ein anderer ITAdmin freigeben.</p>
+            }
+            else
+            {
+                <label class="form-label">Startpasswort (nur für ITAdmin, wird verschlüsselt gespeichert)</label>
+                <div class="input-group mb-1" style="max-width:32rem">
+                    <input class="form-control font-monospace" type="@(_showPassword ? "text" : "password")" autocomplete="new-password"
+                           @bind="_password" @bind:after="CheckPasswordAsync" data-testid="initial-password" />
+                    <button class="btn btn-outline-secondary" @onclick="() => _showPassword = !_showPassword">@(_showPassword ? "verbergen" : "anzeigen")</button>
+                    <button class="btn btn-outline-secondary" @onclick="GeneratePasswordAsync">Generieren</button>
+                </div>
+                @if (_policy is not null)
+                {
+                    <div class="form-text">Richtlinie: mindestens @_policy.MinLength Zeichen@(_policy.ComplexityEnabled ? ", Komplexität (3 von 4 Kategorien, kein Name)" : "").</div>
+                }
+                @foreach (var e in _passwordErrors)
+                {
+                    <div class="text-danger small">@e</div>
+                }
+                <p class="small text-muted mt-2">Bei der Freigabe werden Konfiguration eingefroren, Namen und Kollisionen erneut geprüft und die Steps geplant.</p>
+                <button class="btn btn-primary" disabled="@(Busy || string.IsNullOrEmpty(_password) || _passwordErrors.Count > 0)" @onclick="ApproveAsync">Freigeben</button>
+            }
+        </div>
+    </div>
+}
+
+@if (r.Status == RequestStatus.NeedsInput)
+{
+    <div class="card border-danger mb-3">
+        <div class="card-body">
+            <h2 class="h5 text-danger">Eingabe erforderlich</h2>
+            <p>@r.NeedsInputReason</p>
+            @if (_actor!.IsITAdmin)
+            {
+                <div class="row g-2" style="max-width:48rem">
+                    <div class="col-md-4">
+                        <label class="form-label">sAMAccountName</label>
+                        <input class="form-control font-monospace" @bind="_overrideSam" />
+                    </div>
+                    <div class="col-md-8">
+                        <label class="form-label">E-Mail</label>
+                        <input class="form-control font-monospace" @bind="_overrideMail" />
+                    </div>
+                </div>
+                <button class="btn btn-danger mt-2" disabled="@Busy" @onclick="ResolveAsync">Übernehmen</button>
+            }
+            else
+            {
+                <p class="mb-0 small">Ein ITAdmin vergibt die Werte manuell.</p>
+            }
+        </div>
+    </div>
+}
+
+@if (_actor!.IsITAdmin && r.ApprovedBy is not null && !r.IsClosed)
+{
+    <div class="mb-3">
+        <button class="btn btn-sm btn-outline-secondary" disabled="@Busy"
+                @onclick="RefreshSnapshotAsync">
+            Konfig-Snapshot aktualisieren
+        </button>
+        <span class="small text-muted">übernimmt die aktuelle Konfiguration für noch nicht gestartete Steps</span>
+    </div>
+}
+
+@if (!r.IsClosed && (_actor.IsITAdmin || (_actor.Name == r.CreatedBy && r.Status is RequestStatus.Draft or RequestStatus.PendingApproval)))
+{
+    <div class="input-group input-group-sm mb-3" style="max-width:32rem">
+        <input class="form-control" placeholder="Begründung für Abbruch" @bind="_cancelReason" />
+        <button class="btn btn-outline-danger" disabled="@(Busy || string.IsNullOrWhiteSpace(_cancelReason))"
+                @onclick="CancelAsync">Auftrag abbrechen</button>
+    </div>
+}
+
+@* ---------- data ---------- *@
+<div class="row g-3">
+    <div class="col-lg-6">
+        <h2 class="h5">Eingabe</h2>
+        <dl class="row small">
+            <dt class="col-4">Name</dt><dd class="col-8">@(r.Input.HasDoctorTitle ? "Dr. " : "")@r.Input.FirstName @r.Input.LastName</dd>
+            <dt class="col-4">E-Mail (Eingabe)</dt><dd class="col-8">@r.Input.Mail</dd>
+            <dt class="col-4">Bereich</dt><dd class="col-8">@_details.AreaName</dd>
+            <dt class="col-4">Abteilung</dt><dd class="col-8">@_details.DepartmentName</dd>
+            <dt class="col-4">Vorgesetzte(r)</dt><dd class="col-8">@(_details.Manager?.DisplayName ?? r.Input.ManagerObjectGuid.ToString())</dd>
+            <dt class="col-4">Eintritt</dt><dd class="col-8">@r.Input.EffectiveDate.ToString("dd.MM.yyyy")</dd>
+            <dt class="col-4">Durchwahl</dt><dd class="col-8">@(r.Input.Extension ?? "–")</dd>
+        </dl>
+    </div>
+    <div class="col-lg-6">
+        <h2 class="h5">Abgeleitete Werte</h2>
+        @if (r.Derived is { } d)
+        {
+            <dl class="row small">
+                <dt class="col-4">sAMAccountName</dt><dd class="col-8 font-monospace">@d.SamAccountName</dd>
+                <dt class="col-4">UPN / mail</dt><dd class="col-8 font-monospace">@d.UserPrincipalName</dd>
+                <dt class="col-4">proxyAddresses</dt><dd class="col-8 font-monospace">@string.Join(", ", d.ProxyAddresses)</dd>
+                <dt class="col-4">company</dt><dd class="col-8">@d.Company</dd>
+                <dt class="col-4">OU</dt><dd class="col-8 font-monospace">@d.OuDistinguishedName</dd>
+                <dt class="col-4">Telefon</dt><dd class="col-8 font-monospace">@(d.TelephoneNumber ?? "–")</dd>
+                <dt class="col-4">Konto (objectGUID)</dt><dd class="col-8 font-monospace">@(r.DirectoryObjectGuid?.ToString() ?? "–")</dd>
+            </dl>
+        }
+        else
+        {
+            <p class="small text-muted">Noch nicht abgeleitet.</p>
+        }
+    </div>
+</div>
+
+@* ---------- steps ---------- *@
+<h2 class="h5 mt-3">Steps</h2>
+@if (r.Steps.Count == 0)
+{
+    <p class="small text-muted">Steps werden bei der Freigabe geplant.</p>
+}
+else
+{
+    <table class="table table-sm align-middle small">
+        <thead><tr><th>Step</th><th>Status</th><th>Versuche</th><th>Nächster Versuch</th><th>Fehler / Hinweis</th><th></th></tr></thead>
+        <tbody>
+            @foreach (var step in r.Steps.OrderBy(s => s.SortOrder))
+            {
+                <tr class="@(step.Status == StepStatus.Failed ? "table-danger" : "")">
+                    <td class="font-monospace">@step.StepKey</td>
+                    <td><StatusBadge StepStatus="step.Status" /></td>
+                    <td>@step.Attempts</td>
+                    <td>@(step.NextAttemptAt is { } next && step.Status is StepStatus.Pending or StepStatus.Waiting ? Local(next) : "")</td>
+                    <td>
+                        @if (step.LastError is not null)
+                        {
+                            <div class="text-danger">@step.LastError</div>
+                        }
+                        @step.Note
+                    </td>
+                    <td class="text-nowrap">
+                        @if (_actor.IsITAdmin && !r.IsClosed && step.Status == StepStatus.Failed)
+                        {
+                            <button class="btn btn-sm btn-outline-primary" disabled="@Busy"
+                                    @onclick="() => RetryAsync(step.StepKey)">Retry</button>
+                        }
+                        @if (_actor.IsITAdmin && !r.IsClosed && step.Status is StepStatus.Failed or StepStatus.ManualTask)
+                        {
+                            @if (_markDoneStep == step.StepKey)
+                            {
+                                <div class="input-group input-group-sm mt-1">
+                                    <input class="form-control" placeholder="Begründung" @bind="_markDoneReason" />
+                                    <button class="btn btn-outline-success" disabled="@(Busy || string.IsNullOrWhiteSpace(_markDoneReason))"
+                                            @onclick="() => MarkDoneAsync(step.StepKey)">OK</button>
+                                </div>
+                            }
+                            else
+                            {
+                                <button class="btn btn-sm btn-outline-success" @onclick="() => { _markDoneStep = step.StepKey; _markDoneReason = string.Empty; }">Als erledigt markieren</button>
+                            }
+                        }
+                    </td>
+                </tr>
+            }
+        </tbody>
+    </table>
+}
+
+@* ---------- checklist ---------- *@
+<h2 class="h5 mt-3">Checkliste</h2>
+@if (!RequestWorkflow.CanEditChecklist(r))
+{
+    <p class="small text-muted">Abhakbar, sobald AD.CreateUser erledigt ist.</p>
+}
+<table class="table table-sm align-middle small" data-testid="checklist">
+    <thead><tr><th>Aufgabe</th><th>Zuständig</th><th>Pflicht</th><th>Status</th><th>Erledigt von</th><th></th></tr></thead>
+    <tbody>
+        @foreach (var item in r.Checklist.OrderBy(c => c.SortOrder))
+        {
+            var editable = !r.IsClosed && RequestWorkflow.CanEditChecklist(r) && RequestWorkflow.CanTickChecklistItem(_actor, item);
+            <tr class="@(editable ? "" : "text-muted")">
+                <td>@item.Title<div class="text-muted">@item.Description</div></td>
+                <td>@item.Responsible</td>
+                <td>@(item.Mandatory ? "ja" : "nein")</td>
+                <td>@item.Status @if (item.Note is not null) { <div class="fst-italic">@item.Note</div> }</td>
+                <td>@item.CompletedBy @(item.CompletedAt is { } at ? Local(at) : "")</td>
+                <td class="text-nowrap">
+                    @if (editable)
+                    {
+                        @if (item.Status == ChecklistItemStatus.Open)
+                        {
+                            <button class="btn btn-sm btn-outline-success" disabled="@Busy"
+                                    @onclick="() => Act(() => Requests.SetChecklistItemAsync(r.Id, item.Id, ChecklistItemStatus.Done, null))">Erledigt</button>
+                            @if (_naItem == item.Id)
+                            {
+                                <div class="input-group input-group-sm mt-1">
+                                    <input class="form-control" placeholder="Notiz (Pflicht)" @bind="_naNote" />
+                                    <button class="btn btn-outline-secondary" disabled="@(Busy || string.IsNullOrWhiteSpace(_naNote))"
+                                            @onclick="() => Act(() => Requests.SetChecklistItemAsync(r.Id, item.Id, ChecklistItemStatus.NotApplicable, _naNote))">OK</button>
+                                </div>
+                            }
+                            else
+                            {
+                                <button class="btn btn-sm btn-outline-secondary" @onclick="() => { _naItem = item.Id; _naNote = string.Empty; }">Nicht zutreffend</button>
+                            }
+                        }
+                        else
+                        {
+                            <button class="btn btn-sm btn-outline-secondary" disabled="@Busy"
+                                    @onclick="() => Act(() => Requests.SetChecklistItemAsync(r.Id, item.Id, ChecklistItemStatus.Open, null))">Zurücksetzen</button>
+                        }
+                    }
+                </td>
+            </tr>
+        }
+    </tbody>
+</table>
+
+@* ---------- audit ---------- *@
+<h2 class="h5 mt-3">
+    Audit-Log
+    @if (_actor.IsITAdmin)
+    {
+        <button class="btn btn-sm btn-outline-secondary ms-2" @onclick="ExportCsv">CSV-Export</button>
+    }
+</h2>
+<table class="table table-sm small">
+    <thead><tr><th>Zeit</th><th>Akteur</th><th>Step</th><th>Aktion</th><th>Ergebnis</th><th>Details</th></tr></thead>
+    <tbody>
+        @foreach (var a in _details.Audit.Reverse())
+        {
+            <tr>
+                <td class="text-nowrap">@Local(a.Timestamp)</td>
+                <td>@a.Actor</td>
+                <td class="font-monospace">@a.StepKey</td>
+                <td>@a.Action</td>
+                <td>@a.Result</td>
+                <td class="text-break">@a.Details</td>
+            </tr>
+        }
+    </tbody>
+</table>
+
+@code {
+    [Parameter] public Guid Id { get; set; }
+
+    private RequestDetails? _details;
+    private Actor? _actor;
+    private TimeZoneInfo _zone = TimeZoneInfo.Utc;
+    private Timer? _timer;
+
+    private string _password = "";
+    private bool _showPassword;
+    private PasswordPolicy? _policy;
+    private IReadOnlyList<string> _passwordErrors = [];
+    private string _overrideSam = "";
+    private string _overrideMail = "";
+    private string _cancelReason = "";
+    private string? _markDoneStep;
+    private string _markDoneReason = "";
+    private Guid? _naItem;
+    private string _naNote = "";
+
+    protected override async Task OnInitializedAsync()
+    {
+        _actor = await User.GetAsync();
+        var form = await Requests.GetFormContextAsync();
+        _zone = Onboarding.Core.Time.BusinessCalendar.Resolve(form.Global.TimeZone);
+        await LoadAsync();
+        if (_actor.IsITAdmin)
+        {
+            _policy = await Requests.GetPasswordPolicyAsync();
+        }
+
+        _timer = new Timer(_ => InvokeAsync(async () =>
+        {
+            if (!Busy)
+            {
+                await LoadAsync();
+                StateHasChanged();
+            }
+        }), null, TimeSpan.FromSeconds(10), TimeSpan.FromSeconds(10));
+    }
+
+    private async Task LoadAsync()
+    {
+        _details = await Requests.GetDetailsAsync(Id);
+        if (_details is null)
+        {
+            Error = "Auftrag nicht gefunden.";
+            return;
+        }
+
+        var r = _details.Request;
+        if (r.Status == RequestStatus.NeedsInput && string.IsNullOrEmpty(_overrideMail))
+        {
+            _overrideSam = r.IdentityOverride?.SamAccountName ?? "";
+            _overrideMail = r.IdentityOverride?.Mail ?? r.Input.Mail;
+        }
+    }
+
+    private string Local(DateTimeOffset value) => TimeZoneInfo.ConvertTime(value, _zone).ToString("dd.MM.yyyy HH:mm");
+
+    private async Task Act(Func<Task> action, string? success = null)
+    {
+        await RunAsync(action, success);
+        _markDoneStep = null;
+        _naItem = null;
+        await LoadAsync();
+    }
+
+    private async Task CheckPasswordAsync()
+    {
+        _passwordErrors = string.IsNullOrEmpty(_password)
+            ? []
+            : await Requests.ValidatePasswordAsync(Id, new SecretString(_password));
+    }
+
+    private async Task GeneratePasswordAsync()
+    {
+        _password = (await Requests.GeneratePasswordAsync()).Reveal();
+        _showPassword = true;
+        await CheckPasswordAsync();
+    }
+
+    private async Task ApproveAsync()
+    {
+        var secret = new SecretString(_password);
+        var ok = await RunAsync(() => Requests.ApproveAsync(Id, secret));
+        if (ok)
+        {
+            _password = "";
+            _showPassword = false;
+        }
+
+        await LoadAsync();
+        if (ok)
+        {
+            Info = _details?.Request.Status == RequestStatus.Approved
+                ? "Freigegeben. Der Worker übernimmt die Steps."
+                : "Nicht freigegeben: Eingabe erforderlich (siehe unten).";
+        }
+    }
+
+    private Task SubmitAsync() => Act(() => Requests.SubmitAsync(Id), "Eingereicht.");
+
+    private Task RefreshSnapshotAsync() => Act(() => Requests.RefreshSnapshotAsync(Id), "Konfig-Snapshot aktualisiert.");
+
+    private Task CancelAsync() => Act(() => Requests.CancelAsync(Id, _cancelReason), "Auftrag abgebrochen.");
+
+    private Task RetryAsync(string stepKey) => Act(() => Requests.RetryStepAsync(Id, stepKey), $"{stepKey}: Retry geplant.");
+
+    private Task ResolveAsync() =>
+        Act(() => Requests.ResolveNeedsInputAsync(Id, _overrideSam, _overrideMail), "Werte übernommen.");
+
+    private Task MarkDoneAsync(string stepKey) =>
+        Act(() => Requests.MarkStepDoneAsync(Id, stepKey, _markDoneReason), $"{stepKey} als erledigt markiert.");
+
+    private void ExportCsv() => Navigation.NavigateTo($"audit/export.csv?requestId={Id}", forceLoad: true);
+
+    public void Dispose() => _timer?.Dispose();
+}

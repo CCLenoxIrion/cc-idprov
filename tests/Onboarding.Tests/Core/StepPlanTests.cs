@@ -58,6 +58,17 @@ public sealed class StepPlanTests
     }
 
     [Fact]
+    public void Extension_alone_triggers_telephony_even_if_department_does_not_expect_phone()
+    {
+        var snapshot = TestConfig.Snapshot(department: d => d.Teams.PhoneExpected = false);
+
+        var request = _f.Approved(TestConfig.Person(extension: "12"), snapshot);
+
+        Assert.Empty(Skipped(request));
+        Assert.Equal("+49746592967812", request.Derived!.PhoneE164);
+    }
+
+    [Fact]
     public void Department_without_voicemail_and_forwarding_skips_those()
     {
         var snapshot = TestConfig.Snapshot(department: d =>

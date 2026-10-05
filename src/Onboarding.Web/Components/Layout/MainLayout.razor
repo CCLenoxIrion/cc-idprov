@@ -1,0 +1,36 @@
+@inherits LayoutComponentBase
+@inject IConfiguration Configuration
+@inject NavigationManager Navigation
+
+<div class="page">
+    <div class="sidebar">
+        <NavMenu />
+    </div>
+
+    <main>
+        <div class="top-row px-4">
+            <AuthorizeView>
+                <Authorized>
+                    <span class="me-3">@CurrentUser.DisplayName(context.User)
+                        <small class="text-muted">(@string.Join(", ", Enum.GetValues<Role>().Where(r => context.User.IsInRole(r.ToString()))))</small>
+                    </span>
+                    <button class="btn btn-link p-0" @onclick="Logout">Abmelden</button>
+                </Authorized>
+            </AuthorizeView>
+        </div>
+
+        <article class="content px-4">
+            @Body
+        </article>
+    </main>
+</div>
+
+<div id="blazor-error-ui" data-nosnippet>
+    Ein unerwarteter Fehler ist aufgetreten.
+    <a href="." class="reload">Neu laden</a>
+    <span class="dismiss">🗙</span>
+</div>
+
+@code {
+    private void Logout() => Navigation.NavigateTo(AuthSetup.LogoutUrl(Configuration), forceLoad: true);
+}

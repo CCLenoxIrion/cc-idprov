@@ -1,0 +1,38 @@
+<div class="top-row ps-3 navbar navbar-dark">
+    <div class="container-fluid">
+        <a class="navbar-brand" href="">IT-Onboarding</a>
+    </div>
+</div>
+
+<input type="checkbox" title="Navigation" class="navbar-toggler" />
+
+<div class="nav-scrollable" onclick="document.querySelector('.navbar-toggler').click()">
+    <nav class="nav flex-column">
+        <AuthorizeView Policy="@Policies.Requester">
+            <div class="nav-item px-3">
+                <NavLink class="nav-link" href="" Match="NavLinkMatch.All">Übersicht</NavLink>
+            </div>
+            <div class="nav-item px-3">
+                <NavLink class="nav-link" href="requests/new">Neuer Auftrag</NavLink>
+            </div>
+        </AuthorizeView>
+        <AuthorizeView Policy="@Policies.ITAdmin">
+            <div class="nav-item px-3 mt-3 text-white-50 small">Konfiguration</div>
+            <div class="nav-item px-3">
+                <NavLink class="nav-link" href="admin/global">Global</NavLink>
+            </div>
+            <div class="nav-item px-3">
+                <NavLink class="nav-link" href="admin/areas">Bereiche</NavLink>
+            </div>
+            <div class="nav-item px-3">
+                <NavLink class="nav-link" href="admin/departments">Abteilungen</NavLink>
+            </div>
+            <div class="nav-item px-3">
+                <NavLink class="nav-link" href="admin/checklists">Checklisten-Vorlagen</NavLink>
+            </div>
+            <div class="nav-item px-3">
+                <NavLink class="nav-link" href="admin/history">Änderungshistorie</NavLink>
+            </div>
+        </AuthorizeView>
+    </nav>
+</div>

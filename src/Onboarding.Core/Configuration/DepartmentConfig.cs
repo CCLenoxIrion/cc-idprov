@@ -54,7 +54,11 @@ public sealed class DriveMapping
 
 public sealed class DepartmentTeamsConfig
 {
-    public bool AssignPhone { get; set; }
+    /// <summary>
+    /// Whether people in this department normally get a phone extension. Only drives a form
+    /// warning (DECISIONS T1); the extension alone decides whether telephony steps run.
+    /// </summary>
+    public bool PhoneExpected { get; set; }
     public bool Voicemail { get; set; }
     public UnansweredForwardConfig UnansweredForward { get; set; } = new();
 }

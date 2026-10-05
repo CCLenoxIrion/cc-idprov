@@ -72,7 +72,7 @@ internal static class TestConfig
         },
         Teams = new DepartmentTeamsConfig
         {
-            AssignPhone = true,
+            PhoneExpected = true,
             Voicemail = true,
             UnansweredForward = new UnansweredForwardConfig
             {

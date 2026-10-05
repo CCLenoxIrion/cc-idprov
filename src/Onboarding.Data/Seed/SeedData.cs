@@ -56,6 +56,7 @@ public static class SeedData
         DisabledUsersOU = "", // SPEC §4.1: TBD (v2)
         TimeZone = "Europe/Berlin",
         EnableLeadTime = TimeSpan.Zero,
+        RequestIdAttribute = "extensionAttribute15",
         PasswordCertThumbprint = "",
         Execution = new ExecutionConfig
         {

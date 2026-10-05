@@ -10,3 +10,4 @@ TestResults/
 *.db-shm
 *.db-wal
 appsettings.*.local.json
+App_Data/

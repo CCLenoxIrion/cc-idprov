@@ -34,6 +34,12 @@ public sealed class GlobalConfig
     /// <summary>How long before 00:00 of the entry date the account may be enabled.</summary>
     public TimeSpan EnableLeadTime { get; set; }
 
+    /// <summary>
+    /// AD attribute that <c>AD.CreateUser</c> fills with the request id, so an account can be
+    /// matched to its request even if its objectGUID was not stored (DECISIONS K6).
+    /// </summary>
+    public string RequestIdAttribute { get; set; } = "";
+
     /// <summary>Thumbprint of the worker certificate used to encrypt the initial password.</summary>
     public string PasswordCertThumbprint { get; set; } = "";
 

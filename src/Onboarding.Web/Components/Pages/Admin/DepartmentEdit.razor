@@ -1,0 +1,202 @@
+@page "/admin/departments/new"
+@page "/admin/departments/{Id:guid}"
+@attribute [Authorize(Policy = Policies.ITAdmin)]
+@inherits OnboardingComponentBase
+@inject ConfigService Config
+@inject NavigationManager Navigation
+
+<PageTitle>Abteilung</PageTitle>
+<h1>@(Id is null ? "Neue Abteilung" : $"Abteilung {_department?.Name}")</h1>
+
+<Messages Error="@Error" Info="@Info" />
+
+@if (_department is null)
+{
+    <p>Lädt …</p>
+    return;
+}
+
+<div class="row g-3">
+    <div class="col-md-6">
+        <label class="form-label">Name</label>
+        <input class="form-control" @bind="_department.Name" @bind:after="StateHasChanged" />
+    </div>
+    <div class="col-md-6 pt-4">
+        <div class="form-check form-check-inline">
+            <input class="form-check-input" type="checkbox" id="depActive" @bind="_department.Active" />
+            <label class="form-check-label" for="depActive">Aktiv</label>
+        </div>
+        <div class="form-check form-check-inline">
+            <input class="form-check-input" type="checkbox" id="phoneExpected" @bind="_department.Teams.PhoneExpected" />
+            <label class="form-check-label" for="phoneExpected">Telefonie erwartet (nur Formular-Warnung)</label>
+        </div>
+    </div>
+
+    <div class="col-md-6">
+        <label class="form-label">AD-Gruppen (eine pro Zeile)</label>
+        <textarea class="form-control font-monospace" rows="3" @bind="_groups"></textarea>
+    </div>
+    <div class="col-md-6">
+        <label class="form-label">Lizenzgruppe (nur LicenseMode = Group)</label>
+        <input class="form-control font-monospace" @bind="_department.Licenses.LicenseGroup" />
+    </div>
+    <div class="col-md-4">
+        <label class="form-label">SKUs (eine pro Zeile)</label>
+        <textarea class="form-control font-monospace" rows="2" @bind="_skus"></textarea>
+    </div>
+    <div class="col-md-4">
+        <label class="form-label">Zusätzliche SKUs mit Durchwahl</label>
+        <textarea class="form-control font-monospace" rows="2" @bind="_skusIfPhone"></textarea>
+    </div>
+    <div class="col-md-4">
+        <label class="form-label">Deaktivierte Service-Pläne</label>
+        <textarea class="form-control font-monospace" rows="2" @bind="_disabledPlans"></textarea>
+    </div>
+</div>
+
+<h2 class="h5 mt-4">Freigabepostfächer</h2>
+<table class="table table-sm">
+    <thead><tr><th>Postfach</th><th>FullAccess</th><th>AutoMapping</th><th>SendAs</th><th></th></tr></thead>
+    <tbody>
+        @foreach (var mailbox in _department.SharedMailboxes.ToList())
+        {
+            <tr>
+                <td><input class="form-control form-control-sm" @bind="mailbox.Mailbox" /></td>
+                <td><input type="checkbox" class="form-check-input" @bind="mailbox.FullAccess" /></td>
+                <td><input type="checkbox" class="form-check-input" @bind="mailbox.AutoMapping" /></td>
+                <td><input type="checkbox" class="form-check-input" @bind="mailbox.SendAs" /></td>
+                <td><button class="btn btn-sm btn-outline-danger" @onclick="() => _department.SharedMailboxes.Remove(mailbox)">×</button></td>
+            </tr>
+        }
+    </tbody>
+</table>
+<button class="btn btn-sm btn-outline-secondary" @onclick="() => _department.SharedMailboxes.Add(new SharedMailboxConfig { FullAccess = true, AutoMapping = true })">Postfach hinzufügen</button>
+
+<h2 class="h5 mt-4">Telefonie (greift nur, wenn eine Durchwahl angegeben ist)</h2>
+<div class="row g-2">
+    <div class="col-md-3 form-check ms-2">
+        <input class="form-check-input" type="checkbox" id="voicemail" @bind="_department.Teams.Voicemail" />
+        <label class="form-check-label" for="voicemail">Voicemail</label>
+    </div>
+    <div class="col-md-3 form-check">
+        <input class="form-check-input" type="checkbox" id="forward" @bind="_department.Teams.UnansweredForward.Enabled" />
+        <label class="form-check-label" for="forward">Weiterleitung bei Nichtannahme</label>
+    </div>
+</div>
+@if (_department.Teams.UnansweredForward.Enabled)
+{
+    <div class="row g-2 mt-1">
+        <div class="col-md-2">
+            <label class="form-label">Verzögerung</label>
+            <input class="form-control font-monospace" @bind="_forwardDelay" />
+        </div>
+        <div class="col-md-3">
+            <label class="form-label">Zieltyp</label>
+            <input class="form-control" @bind="_department.Teams.UnansweredForward.TargetType" />
+        </div>
+        <div class="col-md-7">
+            <label class="form-label">Ziel</label>
+            <input class="form-control" @bind="_department.Teams.UnansweredForward.Target" />
+        </div>
+    </div>
+}
+
+<h2 class="h5 mt-4">Anmeldeskript</h2>
+<LogonScriptEditor Template="_department.LogonScript" HomeUncPattern="@_homeUncPattern" DepartmentName="@_department.Name" />
+
+<div class="mt-4">
+    <button class="btn btn-primary" disabled="@Busy" @onclick="SaveAsync">Speichern</button>
+    <a class="btn btn-link" href="admin/departments">Zurück</a>
+    @if (Id is not null)
+    {
+        <button class="btn btn-outline-secondary ms-3" @onclick="PreviewRegenerationAsync">Skripte aller Benutzer neu generieren – Vorschau</button>
+    }
+</div>
+
+@if (_regeneration is not null)
+{
+    <div class="card mt-3">
+        <div class="card-body">
+            <h3 class="h6">Vorschau Neugenerierung (@_regeneration.Count(r => r.Changed) von @_regeneration.Count geändert)</h3>
+            <p class="small text-muted">
+                Das Schreiben nach NETLOGON übernimmt der Worker (Phase 3/4). Diese Vorschau zeigt nur die Unterschiede.
+            </p>
+            @foreach (var item in _regeneration.Where(r => r.Changed))
+            {
+                <div class="mb-2"><strong>@item.SamAccountName</strong>
+                    <pre class="small border p-2">@foreach (var line in LineDiff.Compute(item.OldText, item.NewText))
+{<span class="@(line.Kind switch { DiffKind.Added => "text-success", DiffKind.Removed => "text-danger text-decoration-line-through", _ => "" })">@(line.Kind switch { DiffKind.Added => "+ ", DiffKind.Removed => "- ", _ => "  " })@line.Text
+</span>}</pre>
+                </div>
+            }
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public Guid? Id { get; set; }
+
+    private DepartmentConfig? _department;
+    private string _homeUncPattern = "";
+    private string _groups = "";
+    private string _skus = "";
+    private string _skusIfPhone = "";
+    private string _disabledPlans = "";
+    private string _forwardDelay = "";
+    private List<LogonScriptRegeneration>? _regeneration;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _homeUncPattern = (await Config.GetGlobalAsync()).Settings.Home.UncPattern;
+        _department = Id is { } id
+            ? await Config.GetDepartmentAsync(id)
+            : new DepartmentConfig { Id = Guid.NewGuid() };
+        if (_department is null)
+        {
+            Error = "Abteilung nicht gefunden.";
+            return;
+        }
+
+        _groups = Lines.Join(_department.AdGroups);
+        _skus = Lines.Join(_department.Licenses.SkuPartNumbers);
+        _skusIfPhone = Lines.Join(_department.Licenses.SkuPartNumbersIfPhone);
+        _disabledPlans = Lines.Join(_department.Licenses.DisabledServicePlans);
+        _forwardDelay = Lines.Format(_department.Teams.UnansweredForward.Delay);
+    }
+
+    private void Apply()
+    {
+        _department!.AdGroups = Lines.Split(_groups);
+        _department.Licenses.SkuPartNumbers = Lines.Split(_skus);
+        _department.Licenses.SkuPartNumbersIfPhone = Lines.Split(_skusIfPhone);
+        _department.Licenses.DisabledServicePlans = Lines.Split(_disabledPlans);
+        _department.Licenses.LicenseGroup = string.IsNullOrWhiteSpace(_department.Licenses.LicenseGroup) ? null : _department.Licenses.LicenseGroup.Trim();
+        _department.Teams.UnansweredForward.Delay = Lines.TryParse(_forwardDelay, out var delay)
+            ? delay
+            : throw new UserFacingException($"Verzögerung '{_forwardDelay}' ist keine gültige Zeitspanne.");
+    }
+
+    private async Task SaveAsync()
+    {
+        var isNew = Id is null;
+        var ok = await RunAsync(async () =>
+        {
+            Apply();
+            await Config.SaveDepartmentAsync(_department!);
+        }, "Abteilung gespeichert.");
+        if (ok && isNew)
+        {
+            Navigation.NavigateTo($"admin/departments/{_department!.Id}");
+        }
+        else if (ok)
+        {
+            _department = await Config.GetDepartmentAsync(_department!.Id);
+        }
+    }
+
+    private Task PreviewRegenerationAsync() => RunAsync(async () =>
+    {
+        Apply();
+        _regeneration = await Config.PreviewLogonScriptRegenerationAsync(_department!.Id, _department.LogonScript, _department.Name);
+    });
+}

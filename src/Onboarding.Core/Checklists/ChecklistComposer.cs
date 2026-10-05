@@ -31,6 +31,7 @@ public static class ChecklistComposer
                 Title = t.Title,
                 Description = t.Description,
                 Mandatory = t.Mandatory,
+                Responsible = t.Responsible,
                 SortOrder = order++,
             })
             .ToList();

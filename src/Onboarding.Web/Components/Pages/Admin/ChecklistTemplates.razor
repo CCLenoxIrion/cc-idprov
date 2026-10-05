@@ -1,0 +1,184 @@
+@page "/admin/checklists"
+@attribute [Authorize(Policy = Policies.ITAdmin)]
+@inherits OnboardingComponentBase
+@inject ConfigService Config
+
+<PageTitle>Checklisten-Vorlagen</PageTitle>
+<h1>Checklisten-Vorlagen</h1>
+<p class="text-muted">
+    Manuelle Aufgaben je Auftragstyp. Beim Anlegen eines Auftrags werden alle zutreffenden Vorlagen
+    (Global → Bereich → Abteilung) als Kopie übernommen; spätere Änderungen betreffen laufende Aufträge nicht.
+</p>
+
+<Messages Error="@Error" Info="@Info" />
+
+<div class="mb-3">
+    <select class="form-select d-inline-block w-auto" @bind="_type">
+        @foreach (var t in Enum.GetValues<RequestType>())
+        {
+            <option value="@t">@t</option>
+        }
+    </select>
+</div>
+
+@foreach (var group in _templates.Where(t => t.Type == _type).GroupBy(t => (t.Scope, t.ScopeRefId)).OrderBy(g => g.Key.Scope))
+{
+    <h2 class="h6 mt-3">@ScopeLabel(group.Key.Scope, group.Key.ScopeRefId)</h2>
+    <table class="table table-sm align-middle">
+        <thead><tr><th></th><th>Titel</th><th>Zuständig</th><th>Pflicht</th><th>Aktiv</th><th></th></tr></thead>
+        <tbody>
+            @foreach (var t in group.OrderBy(t => t.SortOrder))
+            {
+                <tr class="@(t.Active ? "" : "text-muted")">
+                    <td class="text-nowrap">
+                        <button class="btn btn-sm btn-outline-secondary" title="nach oben" @onclick="() => MoveAsync(t, -1)">↑</button>
+                        <button class="btn btn-sm btn-outline-secondary" title="nach unten" @onclick="() => MoveAsync(t, 1)">↓</button>
+                    </td>
+                    <td>@t.Title<div class="small text-muted">@t.Description</div></td>
+                    <td>@t.Responsible</td>
+                    <td>@(t.Mandatory ? "ja" : "nein")</td>
+                    <td>@(t.Active ? "ja" : "nein")</td>
+                    <td><button class="btn btn-sm btn-outline-secondary" @onclick="() => Edit(t)">Bearbeiten</button></td>
+                </tr>
+            }
+        </tbody>
+    </table>
+}
+
+<button class="btn btn-outline-primary" @onclick="New">Neue Vorlage</button>
+
+@if (_edit is not null)
+{
+    <div class="card mt-3">
+        <div class="card-body">
+            <div class="row g-2">
+                <div class="col-md-6">
+                    <label class="form-label">Titel</label>
+                    <input class="form-control" @bind="_edit.Title" />
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">Typ</label>
+                    <select class="form-select" @bind="_edit.Type">
+                        @foreach (var t in Enum.GetValues<RequestType>())
+                        {
+                            <option value="@t">@t</option>
+                        }
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">Zuständig</label>
+                    <select class="form-select" @bind="_edit.Responsible">
+                        @foreach (var r in Enum.GetValues<ChecklistResponsibility>())
+                        {
+                            <option value="@r">@r</option>
+                        }
+                    </select>
+                </div>
+                <div class="col-12">
+                    <label class="form-label">Beschreibung</label>
+                    <textarea class="form-control" rows="2" @bind="_edit.Description"></textarea>
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">Geltungsbereich</label>
+                    <select class="form-select" @bind="_edit.Scope">
+                        @foreach (var s in Enum.GetValues<ChecklistScope>())
+                        {
+                            <option value="@s">@s</option>
+                        }
+                    </select>
+                </div>
+                <div class="col-md-5">
+                    @if (_edit.Scope == ChecklistScope.Area)
+                    {
+                        <label class="form-label">Bereich</label>
+                        <select class="form-select" @bind="_edit.ScopeRefId">
+                            <option value="">–</option>
+                            @foreach (var a in _areas)
+                            {
+                                <option value="@a.Id">@a.Name</option>
+                            }
+                        </select>
+                    }
+                    else if (_edit.Scope == ChecklistScope.Department)
+                    {
+                        <label class="form-label">Abteilung</label>
+                        <select class="form-select" @bind="_edit.ScopeRefId">
+                            <option value="">–</option>
+                            @foreach (var d in _departments)
+                            {
+                                <option value="@d.Id">@d.Name</option>
+                            }
+                        </select>
+                    }
+                </div>
+                <div class="col-md-4 pt-4">
+                    <div class="form-check form-check-inline">
+                        <input class="form-check-input" type="checkbox" id="tplMandatory" @bind="_edit.Mandatory" />
+                        <label class="form-check-label" for="tplMandatory">Pflicht</label>
+                    </div>
+                    <div class="form-check form-check-inline">
+                        <input class="form-check-input" type="checkbox" id="tplActive" @bind="_edit.Active" />
+                        <label class="form-check-label" for="tplActive">Aktiv</label>
+                    </div>
+                </div>
+            </div>
+            <button class="btn btn-primary mt-3" disabled="@Busy" @onclick="SaveAsync">Speichern</button>
+            <button class="btn btn-link mt-3" @onclick="() => _edit = null">Abbrechen</button>
+        </div>
+    </div>
+}
+
+@code {
+    private List<ChecklistTemplate> _templates = [];
+    private List<AreaConfig> _areas = [];
+    private List<DepartmentConfig> _departments = [];
+    private RequestType _type = RequestType.Onboarding;
+    private ChecklistTemplate? _edit;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _areas = await Config.GetAreasAsync();
+        _departments = await Config.GetDepartmentsAsync();
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync() => _templates = await Config.GetChecklistTemplatesAsync();
+
+    private string ScopeLabel(ChecklistScope scope, Guid? refId) => scope switch
+    {
+        ChecklistScope.Global => "Global",
+        ChecklistScope.Area => $"Bereich {_areas.FirstOrDefault(a => a.Id == refId)?.Name ?? "?"}",
+        _ => $"Abteilung {_departments.FirstOrDefault(d => d.Id == refId)?.Name ?? "?"}",
+    };
+
+    private void Edit(ChecklistTemplate t) => _edit = new ChecklistTemplate
+    {
+        Id = t.Id, Type = t.Type, Scope = t.Scope, ScopeRefId = t.ScopeRefId, Title = t.Title, Description = t.Description,
+        Mandatory = t.Mandatory, Responsible = t.Responsible, SortOrder = t.SortOrder, Active = t.Active, Version = t.Version,
+    };
+
+    private void New() => _edit = new ChecklistTemplate
+    {
+        Id = Guid.NewGuid(),
+        Type = _type,
+        Mandatory = true,
+        SortOrder = (_templates.Where(t => t.Type == _type && t.Scope == ChecklistScope.Global).Select(t => t.SortOrder).DefaultIfEmpty(0).Max()) + 10,
+    };
+
+    private async Task SaveAsync()
+    {
+        if (await RunAsync(() => Config.SaveChecklistTemplateAsync(_edit!), "Vorlage gespeichert."))
+        {
+            _edit = null;
+            await LoadAsync();
+        }
+    }
+
+    private async Task MoveAsync(ChecklistTemplate t, int direction)
+    {
+        if (await RunAsync(() => Config.MoveChecklistTemplateAsync(t.Id, direction)))
+        {
+            await LoadAsync();
+        }
+    }
+}

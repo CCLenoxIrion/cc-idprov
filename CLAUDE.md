@@ -35,9 +35,9 @@ Umbau dazukommt.
 |---|---|
 | `src/Onboarding.Core` | Domänenmodell, Statusmaschinen, Namens-/Mail-Ableitung, Logon-Skript-Generator, Checklisten-Logik. **Keine I/O, keine Paketreferenzen.** Externe Abhängigkeiten nur als Interfaces (`ICollisionChecker`, `ISecretEncryptor`, …). Zeit nur über `TimeProvider`. |
 | `src/Onboarding.Data` | EF Core + SQLite, `OnboardingDbContext`, Interceptors (Audit append-only, Config-Historie, Concurrency-Token), Migrations, Seed. |
-| `src/Onboarding.Web` | Blazor Server (Phase 2). |
+| `src/Onboarding.Web` | Blazor Server: Auth (`Auth/`), Use-Case-Services (`Services/`), Seiten (`Components/Pages`). Services holen I/O-Daten (Konfig-Snapshot, Kollisionsprüfung, Verschlüsselung) und delegieren Entscheidungen an `RequestWorkflow`. |
 | `src/Onboarding.Worker` | Worker Service, später Windows-Dienst (Phase 3). |
-| `src/Onboarding.Steps` | `IStepExecutor` je Step-Key aus §7 + Fakes (Phase 3), Real-Executor (Phase 4). |
+| `src/Onboarding.Steps` | Integrationen: Fakes (Verzeichnis, Lizenzen, Passwortrichtlinie), Startpasswort-Verschlüsselung; ab Phase 3 `IStepExecutor` je Step-Key, Phase 4 Real-Executor. |
 | `tests/Onboarding.Tests` | xUnit. |
 | `scripts/` | PowerShell-7-Step-Skripte, je Step ein Skript, JSON über stdin/stdout, Secrets nur über stdin (Phase 4). |
 
@@ -51,6 +51,17 @@ dotnet test Onboarding.slnx
 dotnet ef migrations add <Name> -p src/Onboarding.Data -s src/Onboarding.Data -o Migrations
 dotnet ef migrations has-pending-model-changes -p src/Onboarding.Data -s src/Onboarding.Data
 ```
+
+Web lokal starten (Dev-Anmeldung, Fakes, SQLite-Datei `onboarding.db` im Projektordner):
+
+```bash
+ASPNETCORE_ENVIRONMENT=Development dotnet run --project src/Onboarding.Web --launch-profile http
+# http://localhost:5202 → Dev-Anmeldung mit Benutzern aus appsettings.Development.json
+```
+
+Konfiguration Web (`appsettings*.json`): `Authentication:Mode` (`EntraId` | `Dev`, Dev nur in
+Development), `AzureAd` (TenantId/ClientId), `Integrations:Mode` (bis Phase 4 nur `Fake`),
+`SecretProtection:Mode` (`Certificate` | `DevelopmentPem`).
 
 Hinweis Cloud-Umgebung: `builds.dotnet.microsoft.com` ist gesperrt; das .NET-10-SDK kommt
 dort per `apt-get install dotnet-sdk-10.0` (Ubuntu-Paket).

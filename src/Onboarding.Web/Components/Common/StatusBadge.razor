@@ -1,0 +1,24 @@
+<span class="badge @CssClass">@Text</span>
+
+@code {
+    [Parameter] public RequestStatus? RequestStatus { get; set; }
+    [Parameter] public StepStatus? StepStatus { get; set; }
+
+    private string Text => RequestStatus?.ToString() ?? StepStatus?.ToString() ?? "";
+
+    private string CssClass => (RequestStatus, StepStatus) switch
+    {
+        (Core.Domain.RequestStatus.Failed or Core.Domain.RequestStatus.NeedsInput, _) => "bg-danger",
+        (Core.Domain.RequestStatus.Completed, _) => "bg-success",
+        (Core.Domain.RequestStatus.Cancelled, _) => "bg-secondary",
+        (Core.Domain.RequestStatus.AwaitingChecklist or Core.Domain.RequestStatus.Waiting, _) => "bg-warning text-dark",
+        (Core.Domain.RequestStatus.Draft or Core.Domain.RequestStatus.PendingApproval, _) => "bg-info text-dark",
+        ({ }, _) => "bg-primary",
+        (_, Core.Domain.StepStatus.Done) => "bg-success",
+        (_, Core.Domain.StepStatus.Skipped) => "bg-secondary",
+        (_, Core.Domain.StepStatus.Failed) => "bg-danger",
+        (_, Core.Domain.StepStatus.ManualTask or Core.Domain.StepStatus.Waiting) => "bg-warning text-dark",
+        (_, Core.Domain.StepStatus.Running) => "bg-primary",
+        _ => "bg-light text-dark",
+    };
+}

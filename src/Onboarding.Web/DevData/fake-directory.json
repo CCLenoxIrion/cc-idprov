@@ -1,0 +1,59 @@
+{
+  "objects": [
+    {
+      "objectGuid": "0f3c1a52-1b8e-4f5a-9c2d-000000000001",
+      "objectClass": "User",
+      "displayName": "Petra Vogel",
+      "samAccountName": "pvogel",
+      "mail": "p.vogel@cleancontrolling.de",
+      "userPrincipalName": "p.vogel@cleancontrolling.de",
+      "telephoneE164": "+4974659296781",
+      "distinguishedName": "CN=Petra Vogel,OU=Users,OU=Technical,OU=CleanControlling,DC=CC,DC=local",
+      "proxyAddresses": [ "SMTP:p.vogel@cleancontrolling.de", "smtp:p.vogel@cleancontrolling.com" ]
+    },
+    {
+      "objectGuid": "0f3c1a52-1b8e-4f5a-9c2d-000000000002",
+      "objectClass": "User",
+      "displayName": "Thomas Berger",
+      "samAccountName": "tberger",
+      "mail": "t.berger@cleancontrolling.de",
+      "userPrincipalName": "t.berger@cleancontrolling.de",
+      "distinguishedName": "CN=Thomas Berger,OU=Users,OU=Biology,OU=Medical,OU=CleanControlling,DC=CC,DC=local",
+      "proxyAddresses": [ "SMTP:t.berger@cleancontrolling.de", "smtp:t.berger@cleancontrolling.com" ]
+    },
+    {
+      "objectGuid": "0f3c1a52-1b8e-4f5a-9c2d-000000000003",
+      "objectClass": "User",
+      "displayName": "Martin Schmidt",
+      "samAccountName": "mschmidt",
+      "mail": "m.schmidt@cleancontrolling.de",
+      "userPrincipalName": "m.schmidt@cleancontrolling.de",
+      "distinguishedName": "CN=Martin Schmidt,OU=Users,OU=Chemical,OU=Medical,OU=CleanControlling,DC=CC,DC=local",
+      "proxyAddresses": [ "SMTP:m.schmidt@cleancontrolling.de", "smtp:m.schmidt@cleancontrolling.com" ]
+    },
+    {
+      "objectGuid": "0f3c1a52-1b8e-4f5a-9c2d-000000000010",
+      "objectClass": "SharedMailbox",
+      "displayName": "Vertrieb",
+      "mail": "vertrieb@cleancontrolling.de",
+      "proxyAddresses": [ "SMTP:vertrieb@cleancontrolling.de" ]
+    },
+    {
+      "objectGuid": "0f3c1a52-1b8e-4f5a-9c2d-000000000011",
+      "objectClass": "Group",
+      "displayName": "Labor-Verteiler",
+      "proxyAddresses": [ "SMTP:labor@cleancontrolling.de", "smtp:l.abor@cleancontrolling.com" ]
+    }
+  ],
+  "organizationalUnits": [
+    { "distinguishedName": "OU=Users,OU=Technical,OU=CleanControlling,DC=CC,DC=local", "canonicalName": "CC.local/CleanControlling/Technical/Users" },
+    { "distinguishedName": "OU=Users,OU=Biology,OU=Medical,OU=CleanControlling,DC=CC,DC=local", "canonicalName": "CC.local/CleanControlling/Medical/Biology/Users" },
+    { "distinguishedName": "OU=Users,OU=Chemical,OU=Medical,OU=CleanControlling,DC=CC,DC=local", "canonicalName": "CC.local/CleanControlling/Medical/Chemical/Users" },
+    { "distinguishedName": "OU=Test,OU=CleanControlling,DC=CC,DC=local", "canonicalName": "CC.local/CleanControlling/Test" }
+  ],
+  "licenses": [
+    { "skuPartNumber": "SPB", "enabled": 60, "consumed": 57 },
+    { "skuPartNumber": "MCOEV", "enabled": 25, "consumed": 25 }
+  ],
+  "passwordPolicy": { "minLength": 12, "complexityEnabled": true }
+}

@@ -268,3 +268,19 @@ public sealed class IdentityDeriverTests
         Assert.Equal(expected, IdentityDeriver.SuggestMail(first, last, TestConfig.Global()));
     }
 }
+
+public sealed class InputWarningsTests
+{
+    [Theory]
+    [InlineData(true, "12", false)]
+    [InlineData(true, null, true)]
+    [InlineData(false, null, false)]
+    [InlineData(false, "12", true)]
+    public void Phone_warning(bool phoneExpected, string? extension, bool warns)
+    {
+        var department = TestConfig.Department();
+        department.Teams.PhoneExpected = phoneExpected;
+
+        Assert.Equal(warns, InputWarnings.Phone(department, extension) is not null);
+    }
+}

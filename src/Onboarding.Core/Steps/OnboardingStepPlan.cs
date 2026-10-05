@@ -53,5 +53,5 @@ public sealed class OnboardingStepPlan : IStepPlanProvider
     }
 
     private static string? NoPhone(StepPlanContext c) =>
-        c.AssignsPhone ? null : "Keine Durchwahl oder Abteilung ohne Telefonie.";
+        c.HasExtension ? null : "Keine Durchwahl angegeben.";
 }

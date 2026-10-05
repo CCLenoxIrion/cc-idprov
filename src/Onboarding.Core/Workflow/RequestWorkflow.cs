@@ -56,6 +56,36 @@ public sealed class RequestWorkflow(TimeProvider timeProvider, StepPlanRegistry 
             details: $"Typ {type}, {request.Checklist.Count} Checklistenpunkte."));
     }
 
+    /// <summary>
+    /// Changes the input of a draft. If area or department changed, the checklist is composed
+    /// again (the draft has not been submitted, so this still counts as "at creation").
+    /// </summary>
+    public IReadOnlyList<AuditEntry> UpdateDraft(
+        Request request,
+        Actor actor,
+        PersonInput input,
+        IEnumerable<ChecklistTemplate> checklistTemplates)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(actor);
+        ArgumentNullException.ThrowIfNull(input);
+        Require(request.Status == RequestStatus.Draft, "Nur Entwürfe können bearbeitet werden.");
+        Require(actor.IsITAdmin || actor.Name == request.CreatedBy, "Nur Antragsteller oder ITAdmin dürfen den Entwurf bearbeiten.");
+
+        var scopeChanged = request.Input.AreaId != input.AreaId || request.Input.DepartmentId != input.DepartmentId;
+        request.Input = input;
+        request.UpdatedAt = Now;
+        if (scopeChanged)
+        {
+            request.Checklist.Clear();
+            request.Checklist.AddRange(ChecklistComposer.Compose(
+                request.Id, request.Type, input.AreaId, input.DepartmentId, checklistTemplates));
+        }
+
+        return [Audit(actor, request, AuditActions.DraftUpdated, AuditResults.Success,
+            details: scopeChanged ? "Bereich/Abteilung geändert, Checkliste neu erstellt." : null)];
+    }
+
     /// <summary>Draft → PendingApproval, or NeedsInput if derivation/collision check failed.</summary>
     public IReadOnlyList<AuditEntry> Submit(Request request, Actor actor, IdentityCheck check)
     {
@@ -249,7 +279,6 @@ public sealed class RequestWorkflow(TimeProvider timeProvider, StepPlanRegistry 
     {
         ArgumentNullException.ThrowIfNull(request);
         ArgumentNullException.ThrowIfNull(actor);
-        Require(actor.IsITAdmin, "Checkliste nur durch ITAdmin.");
         Require(!request.IsClosed, $"Auftrag ist abgeschlossen ({request.Status}).");
         Require(CanEditChecklist(request), "Checkliste ist erst abhakbar, wenn AD.CreateUser erledigt ist.");
         Require(status != ChecklistItemStatus.NotApplicable || !string.IsNullOrWhiteSpace(note),
@@ -257,6 +286,7 @@ public sealed class RequestWorkflow(TimeProvider timeProvider, StepPlanRegistry 
 
         var item = request.Checklist.SingleOrDefault(c => c.Id == itemId)
                    ?? throw new WorkflowException("Checklistenpunkt nicht gefunden.");
+        Require(CanTickChecklistItem(actor, item), "Requester dürfen nur HR-Punkte abhaken.");
         var old = item.Status;
         item.SetStatus(status, note, actor.Name, Now);
         request.UpdatedAt = Now;
@@ -268,6 +298,38 @@ public sealed class RequestWorkflow(TimeProvider timeProvider, StepPlanRegistry 
         };
         audits.AddRange(ApplyEvaluation(request));
         return audits;
+    }
+
+    /// <summary>ITAdmin may tick all items, requesters only HR items.</summary>
+    public static bool CanTickChecklistItem(Actor actor, ChecklistItem item)
+    {
+        ArgumentNullException.ThrowIfNull(actor);
+        ArgumentNullException.ThrowIfNull(item);
+        return actor.IsITAdmin || (actor.IsRequester && item.Responsible == ChecklistResponsibility.HR);
+    }
+
+    /// <summary>
+    /// Stores the objectGUID of the account created by <c>AD.CreateUser</c> (called by the
+    /// worker, DECISIONS K6). Setting a different GUID later is refused.
+    /// </summary>
+    public IReadOnlyList<AuditEntry> RecordDirectoryObject(Request request, Guid objectGuid)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        Require(objectGuid != Guid.Empty, "objectGUID fehlt.");
+        if (request.DirectoryObjectGuid == objectGuid)
+        {
+            return [];
+        }
+
+        Require(request.DirectoryObjectGuid is null,
+            $"Auftrag ist bereits dem Konto {request.DirectoryObjectGuid} zugeordnet.");
+        request.DirectoryObjectGuid = objectGuid;
+        request.UpdatedAt = Now;
+        return
+        [
+            Audit(Actor.System, request, AuditActions.DirectoryObjectRecorded, AuditResults.Success,
+                StepKeys.AdCreateUser, $"objectGUID {objectGuid}"),
+        ];
     }
 
     public static bool CanEditChecklist(Request request)

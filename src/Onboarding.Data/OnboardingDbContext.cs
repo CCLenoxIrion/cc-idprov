@@ -29,6 +29,7 @@ public sealed class OnboardingDbContext(DbContextOptions<OnboardingDbContext> op
         configurationBuilder.Properties<StepStatus>().HaveConversion<string>().HaveMaxLength(32);
         configurationBuilder.Properties<ChecklistItemStatus>().HaveConversion<string>().HaveMaxLength(32);
         configurationBuilder.Properties<ChecklistScope>().HaveConversion<string>().HaveMaxLength(32);
+        configurationBuilder.Properties<ChecklistResponsibility>().HaveConversion<string>().HaveMaxLength(16);
         configurationBuilder.Properties<ConfigChangeType>().HaveConversion<string>().HaveMaxLength(32);
     }
 
@@ -40,6 +41,7 @@ public sealed class OnboardingDbContext(DbContextOptions<OnboardingDbContext> op
         {
             b.ToTable("Requests");
             b.HasKey(r => r.Id);
+            b.Property(r => r.Id).ValueGeneratedNever();
             b.Property(r => r.Version).IsConcurrencyToken();
             b.HasIndex(r => r.Status);
             b.ComplexProperty(r => r.Input, input =>
@@ -63,6 +65,7 @@ public sealed class OnboardingDbContext(DbContextOptions<OnboardingDbContext> op
         {
             b.ToTable("RequestSteps");
             b.HasKey(s => s.Id);
+            b.Property(s => s.Id).ValueGeneratedNever();
             b.Property(s => s.StepKey).HasMaxLength(64);
             b.Property(s => s.Version).IsConcurrencyToken();
             b.HasIndex(s => new { s.RequestId, s.StepKey }).IsUnique();
@@ -73,6 +76,7 @@ public sealed class OnboardingDbContext(DbContextOptions<OnboardingDbContext> op
         {
             b.ToTable("ChecklistItems");
             b.HasKey(c => c.Id);
+            b.Property(c => c.Id).ValueGeneratedNever();
             b.Property(c => c.Title).HasMaxLength(200);
             b.Ignore(c => c.IsSatisfied);
         });
@@ -81,6 +85,7 @@ public sealed class OnboardingDbContext(DbContextOptions<OnboardingDbContext> op
         {
             b.ToTable("ChecklistTemplates");
             b.HasKey(t => t.Id);
+            b.Property(t => t.Id).ValueGeneratedNever();
             b.Property(t => t.Title).HasMaxLength(200);
             b.Property(t => t.Version).IsConcurrencyToken();
         });
@@ -108,6 +113,7 @@ public sealed class OnboardingDbContext(DbContextOptions<OnboardingDbContext> op
         {
             b.ToTable("Areas");
             b.HasKey(a => a.Id);
+            b.Property(a => a.Id).ValueGeneratedNever();
             b.Property(a => a.Name).HasMaxLength(64);
             b.HasIndex(a => a.Name).IsUnique();
             b.Property(a => a.Version).IsConcurrencyToken();
@@ -117,6 +123,7 @@ public sealed class OnboardingDbContext(DbContextOptions<OnboardingDbContext> op
         {
             b.ToTable("Departments");
             b.HasKey(d => d.Id);
+            b.Property(d => d.Id).ValueGeneratedNever();
             b.Property(d => d.Name).HasMaxLength(128);
             b.HasIndex(d => d.Name).IsUnique();
             b.Property(d => d.Version).IsConcurrencyToken();
