@@ -1,0 +1,19 @@
+# Session configuration "CC.Onboarding" on DC01 – template.
+# Register-OnboardingJea.ps1 creates the real .pssc from these values via
+# New-PSSessionConfigurationFile; placeholders <...> are replaced by its parameters.
+@{
+    SchemaVersion       = '2.0.0.0'
+    SessionType         = 'RestrictedRemoteServer'
+    LanguageMode        = 'NoLanguage'
+    TranscriptDirectory = 'C:\ProgramData\CCOnboarding\Transcripts'
+
+    # Only the worker gMSA may connect; it gets exactly the role capability OnboardingDc.
+    RoleDefinitions     = @{ '<NETBIOS>\<WORKER_GMSA>$' = @{ RoleCapabilities = 'OnboardingDc' } }
+
+    # Run-as – EINE der beiden Varianten (DEPLOYMENT.md, „zu verifizieren“):
+    # (a) Virtual Account, eingeschränkt über eine Gruppe:
+    RunAsVirtualAccount       = $true
+    RunAsVirtualAccountGroups = @('<NETBIOS>\<RUNAS_GROUP>')
+    # (b) eigenes Endpunkt-gMSA:
+    # GroupManagedServiceAccount = '<NETBIOS>\<ENDPOINT_GMSA>'
+}

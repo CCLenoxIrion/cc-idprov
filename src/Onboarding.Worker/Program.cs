@@ -40,7 +40,7 @@ builder.Services.AddSecretProtection(
     },
     builder.Environment.ContentRootPath,
     ServiceLifetime.Singleton);
-builder.Services.AddStepExecutors(builder.Configuration);
+builder.Services.AddStepExecutors(builder.Configuration, builder.Environment.ContentRootPath);
 builder.Services.AddSingleton(builder.Configuration.GetSection("Worker").Get<WorkerOptions>() ?? new WorkerOptions());
 builder.Services.AddSingleton(sp => ActivatorUtilities.CreateInstance<WorkerEngine>(
     sp, sp.GetRequiredService<Onboarding.Core.Security.ISecretDecryptor>()));

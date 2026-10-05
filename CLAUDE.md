@@ -12,7 +12,8 @@ Umbau dazukommt.
 
 - Führe **NIEMALS** Befehle gegen AD, Exchange Online, Graph, Teams, SMB oder NETLOGON aus.
   Kein `Connect-*`, kein `Invoke-Command`. Echte Systeme fasst nur ein Mensch an.
-- Bis einschließlich Phase 3 laufen alle Steps über **Fake-Executors**.
+- Bis einschließlich Phase 3 laufen alle Steps über **Fake-Executors**. Ab Phase 4 führt Claude
+  weder pwsh noch Pester aus und baut keine Verbindungen auf; getestet wird lokal vom Menschen.
 - Keine Werte aus der Spec hart codieren, die in SPEC §4 als Konfiguration stehen
   (Domäne, Mail-Muster, Präfixe, OUs, Server, Pfade, Policies, …). Sie stehen nur in
   Seed-Daten bzw. in der DB-Konfiguration; Tests bauen ihre Konfiguration selbst.
@@ -37,9 +38,12 @@ Umbau dazukommt.
 | `src/Onboarding.Data` | EF Core + SQLite, `OnboardingDbContext`, Interceptors (Audit append-only, Config-Historie, Concurrency-Token), Migrations, Seed. |
 | `src/Onboarding.Web` | Blazor Server: Auth (`Auth/`), Use-Case-Services (`Services/`), Seiten (`Components/Pages`). Services holen I/O-Daten (Konfig-Snapshot, Kollisionsprüfung, Verschlüsselung) und delegieren Entscheidungen an `RequestWorkflow`. |
 | `src/Onboarding.Worker` | Worker Service / Windows-Dienst: `WorkerEngine` (Claim mit Concurrency-Token, ein Running-Step pro Auftrag, Aufträge parallel), Polling-Loop, Single-Instance-Lock. Entscheidungen über Status/Backoff/Timeout/Audit trifft `RequestWorkflow` (Core). |
-| `src/Onboarding.Steps` | `IStepExecutor` je Step-Key (`Execution/`), simulierte Fake-Welt mit Executors (`Fakes/World/`), Fake-Verzeichnis für das Web, Startpasswort-Verschlüsselung; Phase 4: Real-Executor (pwsh). |
+| `src/Onboarding.Steps` | `IStepExecutor` je Step-Key (`Execution/`), simulierte Fake-Welt mit Executors (`Fakes/World/`), Fake-Verzeichnis für das Web, Startpasswort-Verschlüsselung, Skript-Executor für DryRun/Real (`Scripts/`: pwsh, JSON über stdin/stdout, Timeout mit Kill), LDAP-Lese-Adapter für das Web (`Ldap/`). |
 | `tests/Onboarding.Tests` | xUnit. |
-| `scripts/` | PowerShell-7-Step-Skripte, je Step ein Skript, JSON über stdin/stdout, Secrets nur über stdin (Phase 4). |
+| `scripts/steps`, `scripts/common` | PowerShell-7-Step-Skripte, je Step ein Skript, JSON über stdin/stdout, Secrets nur über stdin (DECISIONS X3). |
+| `scripts/jea` | JEA-Endpunkte `CC.Onboarding` (DC01) und `CC.Onboarding.Sync` (CC01): Module (PS 5.1), Role Capabilities, Registrierung, manueller Test (X5). |
+| `scripts/tests` | Pester-5-Tests mit gemockten Cmdlets; `Stubs.ps1` wirft bei vergessenem Mock. |
+| `docs/DEPLOYMENT.md` | Checkliste für Rechte, JEA-Registrierung, Dienste und Testreihenfolge. |
 
 ## Build / Test
 
@@ -70,8 +74,18 @@ Fehlerinjektion und Verzögerungen der Fake-Welt: Abschnitt `FakeWorld` in
 `src/Onboarding.Worker/appsettings.json`.
 
 Konfiguration Web (`appsettings*.json`): `Authentication:Mode` (`EntraId` | `Dev`, Dev nur in
-Development), `AzureAd` (TenantId/ClientId), `Integrations:Mode` (bis Phase 4 nur `Fake`),
-`SecretProtection:Mode` (`Certificate` | `DevelopmentPem`).
+Development), `AzureAd` (TenantId/ClientId), `Integrations:Read:Directory` (`Fake` | `Real` = LDAP),
+`Integrations:Read:Licenses` (bis 4b nur `Fake`), `SecretProtection:Mode` (`Certificate` | `DevelopmentPem`).
+
+Konfiguration Worker: `Integrations:Steps:OnPrem` / `:Cloud` (`Fake` | `DryRun` | `Real`, Cloud bis 4b
+nur `Fake`), `Integrations:Scripts` (PwshPath, ScriptsDirectory, Timeout, JEA-Endpunktnamen).
+
+PowerShell-Skripte werden von Claude **nicht** ausgeführt (kein pwsh, kein Pester). Der Mensch
+testet lokal:
+
+```powershell
+Invoke-Pester ./scripts/tests -Output Detailed   # Pester >= 5.5
+```
 
 Hinweis Cloud-Umgebung: `builds.dotnet.microsoft.com` ist gesperrt; das .NET-10-SDK kommt
 dort per `apt-get install dotnet-sdk-10.0` (Ubuntu-Paket).

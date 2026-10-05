@@ -29,7 +29,7 @@ internal sealed class FakeDirectory : IDirectoryLookup, IOpenRequestLookup
     public Task<IReadOnlyList<DirectoryObjectRef>> FindProxyAddressOwnersAsync(string address, CancellationToken cancellationToken) =>
         Find(o => o.ProxyAddresses.Any(p => Eq(p, "smtp:" + address)));
 
-    public Task<IReadOnlyList<DirectoryObjectRef>> FindByPhoneNumberAsync(string e164, CancellationToken cancellationToken) =>
+    public Task<IReadOnlyList<DirectoryObjectRef>> FindByPhoneNumberAsync(string e164, string? extension, CancellationToken cancellationToken) =>
         Find(o => o.Phone == e164);
 
     public Task<IReadOnlyList<OpenRequestIdentity>> GetOpenRequestIdentitiesAsync(Guid excludeRequestId, CancellationToken cancellationToken) =>

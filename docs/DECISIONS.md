@@ -83,7 +83,7 @@ Stand: Phase 1. Ergänzt/präzisiert `SPEC.md`; bei Widerspruch gilt dieses Doku
 | W7 | Sichtbarkeit | Requester und ITAdmin sehen alle Aufträge; CSV-Export des Audit-Logs nur ITAdmin. |
 | W9 | Requester-Ansicht | Requester sehen alle Aufträge (HR arbeitet als Team), in der Detailansicht aber nur Status, Fortschritt, Stichtag und Checkliste (HR-Punkte abhakbar). Keine Step-Fehler, kein Audit-Log, keine technischen Werte – der Service liefert dafür ein eigenes DTO (`RequestSummary`). Volle Ansicht nur ITAdmin; Requester laden Volldetails nur für eigene Entwürfe (Bearbeiten). |
 | W10 | Eintritt in der Vergangenheit | Erlaubt (Nachmeldungen), mit Warnung und Pflicht-Bestätigung im Formular; der Service lehnt ohne Bestätigung ab und auditiert die Bestätigung. `AD.Enable` ist dann sofort fällig. |
-| W8 | Fakes | Verzeichnis, Lizenzen und Passwortrichtlinie kommen bis Phase 4 aus `Integrations:FakeDataFile` (`src/Onboarding.Web/DevData/fake-directory.json`). |
+| W8 | Fakes | Im Modus `Fake` kommen Verzeichnis, Lizenzen und Passwortrichtlinie aus `Integrations:FakeDataFile` (`src/Onboarding.Web/DevData/fake-directory.json`). Umschaltung pro Lese-Adapter siehe X6. |
 
 ## Betrieb (Phase 3)
 
@@ -101,8 +101,27 @@ Stand: Phase 1. Ergänzt/präzisiert `SPEC.md`; bei Widerspruch gilt dieses Doku
 | X1 | `Sync.Delta` hängt bewusst **nicht** von `AD.Enable` ab; die Cloud-Einrichtung läuft mit deaktiviertem Konto. Prüfen, ob Lizenzzuweisung, Mailbox-Provisionierung und `Set-CsPhoneNumberAssignment` bei `accountEnabled = false` in Entra funktionieren. |
 | X2 | Vor dem ersten Schreiben prüfen, dass `extensionAttribute15` (K6) weiterhin bei keinem Objekt belegt ist. |
 
+## Integrationen On-Prem (Phase 4a)
+
+| # | Thema | Entscheidung |
+|---|---|---|
+| X3 | Skript-Vertrag | Je Step ein PowerShell-7-Skript `scripts/steps/<StepKey>.ps1`, gemeinsame Logik in `scripts/common/`. Der Worker startet `pwsh -NoProfile -NonInteractive -File`; **Eingabe nur JSON über stdin** (`StepScriptInput`: Identität, Manager-/Objekt-GUID, Gruppen, JEA-Endpunktnamen, Anmeldeskript als Base64 + SHA-256, `dryRun`, `force`; Startpasswort nur bei `AD.CreateUser`). **Keine Pfade und keine Freigabenamen** – die kennt nur der JEA-Endpunkt. **Ausgabe genau ein JSON-Objekt auf stdout** `{status, reason, output, directoryObjectGuid, dryRun, plannedActions}`. Jeder Fehlerpfad liefert `failed` mit bereinigter Meldung (Exception-Typ → fester Text), nie rohe Exception-Texte oder Parameterwerte. |
+| X4 | Dry-Run | Modus pro Step-Gruppe: `Integrations:Steps:OnPrem` / `:Cloud` = `Fake` \| `DryRun` \| `Real` (Cloud bis 4b nur `Fake`; ungültige Werte brechen den Start ab). Im Dry-Run prüft das Skript lesend und meldet geplante Änderungen; der Step geht nach `NeedsInput` mit „Dry-Run – würde: …“. Ist der Zielzustand bereits erreicht (keine geplanten Aktionen), ist der Step `Done`. Nach Umschalten auf `Real` wird der Step per „Erneut versuchen“ ausgeführt. Läuft On-Prem nicht als Fake, legen die Cloud-Fakes ihre Benutzer selbst an (`DetachedFromOnPrem`). |
+| X5 | JEA-Endpunkte auf DC01 und CC01 | Datei-, Freigabe- und Sync-Operationen laufen ausschließlich über eingeschränkte JEA-Funktionen: `CC.Onboarding` auf DC01 (`New-OnbHomeFolder`, `New-OnbHomeShare`, `Set-OnbLogonScript`) und `CC.Onboarding.Sync` auf CC01 (nur `Start-OnbDeltaSync`, parameterlos). Das Worker-gMSA ist weder lokaler Admin auf DC01 noch Mitglied von `ADSyncOperators`, sondern nur in den `RoleDefinitions` eingetragen; die Rechte hat das Run-As-Konto des Endpunkts (Varianten in DEPLOYMENT.md §4.2). Die Endpunkte validieren selbst: sam `^[a-z0-9]{1,20}$`, Pfade nur aus der festen Endpunkt-Konfiguration `OnboardingEndpoint.psd1` (kanonisiert, Traversal-Schutz), Anmeldeskript nur ASCII mit CRLF und passender SHA-256; idempotent (gleicher Hash → nichts; abweichender Inhalt ohne `force` oder Freigabe mit anderem Pfad → `needsInput`). **Die Endpunkt-Konfiguration muss zur Global-Konfiguration passen** (Home-Stamm, Freigabemuster, NetBIOS-Domäne, Skript-Dateiname); Abgleich ist Deployment-Schritt. Aufruf per implizitem Remoting (`New-PSSession -ConfigurationName`, `Import-PSSession -Prefix Remote`, lokaler Aufruf, Session im `finally` schließen), weil JEA-Sitzungen in `NoLanguage` keine Variablen in Scriptblöcken erlauben – **zu verifizieren**. |
+| X6 | Web-Identität | Das Web liest AD unter einem eigenen, nur lesenden Dienstkonto (LDAP über System.DirectoryServices.Protocols, Negotiate, Signing + Sealing, Paging). Modus pro Lese-Adapter: `Integrations:Read:Directory` = `Fake` \| `Real` (Kollisionen, Vorgesetzte, OUs, Kennwortrichtlinie), `Integrations:Read:Licenses` = `Fake` bis 4b; dort kommt eine eigene, rein lesende App-Registrierung für Graph. Das alte `Integrations:Mode` bricht den Start mit Hinweis ab. Vorgesetztensuche zeigt nur aktivierte Konten. |
+| X7 | stderr und Exit-Codes | stderr eines Skripts geht nur gekürzt (2000 Zeichen) und mit entferntem Startpasswort ins Worker-Log, nie in `LastError`, Step-Output oder Audit. Exit-Code ≠ 0 oder kein gültiges JSON → `Failed` mit generischer Meldung („Details im Worker-Log“). Zeitüberschreitung (`Integrations:Scripts:Timeout`) → Prozessbaum wird beendet, Step `Waiting` (Backoff). Auch `reason` aus dem JSON wird vor dem Speichern um das Passwort bereinigt. |
+| X8 | Bestehendes eigenes Konto | `AD.CreateUser` erkennt das eigene Konto an der gespeicherten objectGUID oder am Request-Id-Attribut (K6). Abweichende Attribute (inkl. `proxyAddresses`, Manager) werden korrigiert, eine abweichende OU führt zu `needsInput`. Das Passwort wird **nie** neu gesetzt. Fremdes Konto mit gleicher sam/UPN/Mail/Proxy-Adresse → `needsInput`. |
+| X9 | LDAP-Filter | Skripte fragen AD nur mit `-Identity` oder `-LDAPFilter` ab, Werte RFC-4515-escaped (`ConvertTo-LdapFilterValue`); nie String-Interpolation in `-Filter`. Im Web genauso (`LdapFilter.Escape`, GUIDs als Byte-Escape, Attributnamen aus der Konfiguration werden validiert). **Durchwahl-Kollision:** AD speichert `telephoneNumber` als freien Text. Gesucht wird `(telephoneNumber=*<Durchwahl>*)`, verglichen werden clientseitig nur die Ziffern mit der E.164-Nummer; `+…`, `00…`, nationale Schreibweise mit führender 0 und `(0)` werden erkannt (`PhoneNumberMatcher`). Die Durchwahl steht dafür zusätzlich im abgeleiteten Ergebnis (`DerivedIdentity.Extension`). |
+
+## Verworfene Alternativen
+
+| Alternative | Warum verworfen |
+|---|---|
+| Home-Ordner, Freigabe und Anmeldeskript direkt vom Worker über Admin-Share bzw. UNC-Pfad auf NETLOGON | Worker-gMSA bräuchte Schreibrechte auf F:\Home und NETLOGON bzw. lokale Admin-Rechte auf einem DC; Pfade kämen vom Worker. Ersetzt durch X5. |
+| Freigabe/ACL per CIM-Session oder `Invoke-Command` mit Admin-Rechten | Gleiche Rechteausweitung, keine Validierung auf dem Zielsystem. Ersetzt durch X5. |
+| Worker-gMSA in `ADSyncOperators` auf CC01 | Erlaubt mehr als den Delta-Sync. Ersetzt durch den Sync-Endpunkt (X5). |
+
 ## Offen für spätere Phasen
 
-- „Skripte aller Benutzer dieser Abteilung neu generieren“ (§4.4): Phase 2 liefert die Diff-Vorschau; das Schreiben nach NETLOGON als Worker-Job folgt mit Phase 4 (es braucht den echten Datei-Executor).
-- Unerwartete Executor-Exceptions landen mit ihrer Meldung in `LastError`. Für die PowerShell-Executors (Phase 4) muss sichergestellt sein, dass Fehlermeldungen keine Secrets enthalten (Passwort nur über stdin).
+- „Skripte aller Benutzer dieser Abteilung neu generieren“ (§4.4): Phase 2 liefert die Diff-Vorschau; das Schreiben nach NETLOGON als Worker-Job (über `Set-OnbLogonScript -Force`, X5) ist noch offen.
 - Ablaufwarnung für das Zertifikat der App-Registrierung (§9): sobald der Worker die Zertifikatsdaten melden kann (Phase 3/4).

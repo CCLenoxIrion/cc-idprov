@@ -16,6 +16,9 @@ public sealed record DerivedIdentity
     public required string ScriptPath { get; init; }
     public required string HomeUnc { get; init; }
 
+    /// <summary>Extension (digits only), null without extension.</summary>
+    public string? Extension { get; init; }
+
     /// <summary>E.164 number, null without extension.</summary>
     public string? PhoneE164 { get; init; }
 

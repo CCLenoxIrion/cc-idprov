@@ -1,0 +1,8 @@
+# Role capability for the worker gMSA on CC01 (endpoint "CC.Onboarding.Sync").
+@{
+    GUID             = 'b6d4a2e8-1c7f-4e39-a5d0-2f8c9e1b7a04'
+    Author           = 'CleanControlling IT'
+    Description      = 'Onboarding: Delta-Sync auslösen'
+    ModulesToImport  = @('CCOnboardingSync')
+    VisibleFunctions = @('Start-OnbDeltaSync')
+}

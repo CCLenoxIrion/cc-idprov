@@ -151,6 +151,7 @@ public static class IdentityDeriver
             OuDistinguishedName = area.OuDistinguishedName,
             ScriptPath = PlaceholderRenderer.Render(global.LogonScript.FileNamePattern, values),
             HomeUnc = homeUnc,
+            Extension = extension,
             PhoneE164 = extension is null ? null : global.PhonePrefixE164 + extension,
             TelephoneNumber = extension is null ? null : PlaceholderRenderer.Render(global.PhoneDisplayFormat, values),
             AdditionalAttributes = attributes,

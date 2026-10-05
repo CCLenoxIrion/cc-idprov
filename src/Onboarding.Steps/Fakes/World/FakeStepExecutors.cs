@@ -64,7 +64,26 @@ public abstract class FakeStepExecutor(FakeWorld world) : IStepExecutor
             ? user
             : null;
 
-    protected FakeCloudUser? CloudUser(StepContext context) => World.CloudUsers.GetValueOrDefault(Upn(context));
+    /// <summary>
+    /// The cloud user. When the on-prem steps run for real (<see cref="FakeWorldOptions.DetachedFromOnPrem"/>),
+    /// the fake cloud cannot rely on the fake sync and creates the user on first access.
+    /// </summary>
+    protected FakeCloudUser? CloudUser(StepContext context)
+    {
+        if (World.CloudUsers.TryGetValue(Upn(context), out var user))
+        {
+            return user;
+        }
+
+        if (!World.Options.DetachedFromOnPrem)
+        {
+            return null;
+        }
+
+        user = new FakeCloudUser { UserPrincipalName = Upn(context) };
+        World.CloudUsers[user.UserPrincipalName] = user;
+        return user;
+    }
 
     /// <summary>Waiting until a named counter reaches the configured number of checks.</summary>
     protected bool StillDelayed(string name, StepContext context, int delayChecks) =>
@@ -566,10 +585,18 @@ public sealed class FakeEntraWaitEnabled(FakeWorld world) : FakeStepExecutor(wor
 {
     public override string StepKey => EntraWaitEnabled;
 
-    protected override StepOutcome Execute(StepContext context) =>
-        CloudUser(context) is not { AccountEnabled: true } || StillDelayed(StepKey, context, World.Options.EnabledDelayChecks)
+    protected override StepOutcome Execute(StepContext context)
+    {
+        if (World.Options.DetachedFromOnPrem && CloudUser(context) is { } detached)
+        {
+            // Runs only after AD.Enable and the post-enable sync (both real in this mode).
+            detached.AccountEnabled = true;
+        }
+
+        return CloudUser(context) is not { AccountEnabled: true } || StillDelayed(StepKey, context, World.Options.EnabledDelayChecks)
             ? StepOutcome.Waiting("accountEnabled in Entra noch false.")
             : StepOutcome.Done("accountEnabled = true in Entra.");
+    }
 }
 
 /// <summary>Creates one fake executor per onboarding step key.</summary>

@@ -17,7 +17,7 @@ public sealed class FakeDirectory(FakeDirectoryData data)
     public Task<IReadOnlyList<DirectoryObjectRef>> FindProxyAddressOwnersAsync(string address, CancellationToken cancellationToken) =>
         Find(o => o.ProxyAddresses.Any(p => Eq(CollisionChecker.SmtpAddress(p), address)));
 
-    public Task<IReadOnlyList<DirectoryObjectRef>> FindByPhoneNumberAsync(string e164, CancellationToken cancellationToken) =>
+    public Task<IReadOnlyList<DirectoryObjectRef>> FindByPhoneNumberAsync(string e164, string? extension, CancellationToken cancellationToken) =>
         Find(o => string.Equals(o.TelephoneE164, e164, StringComparison.Ordinal));
 
     public Task<IReadOnlyList<DirectoryUser>> SearchUsersAsync(string query, int maxResults, CancellationToken cancellationToken)

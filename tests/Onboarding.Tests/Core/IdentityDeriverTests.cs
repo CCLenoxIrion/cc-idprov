@@ -206,6 +206,7 @@ public sealed class IdentityDeriverTests
         var id = DeriveOk(TestConfig.Person(extension: "0"));
 
         Assert.Equal("+4974659296780", id.PhoneE164);
+        Assert.Equal("0", id.Extension);
         Assert.Equal("+49 7465 929678-0", id.TelephoneNumber);
     }
 
@@ -227,6 +228,7 @@ public sealed class IdentityDeriverTests
         var id = DeriveOk(TestConfig.Person(extension: extension));
 
         Assert.Null(id.PhoneE164);
+        Assert.Null(id.Extension);
         Assert.Null(id.TelephoneNumber);
     }
 

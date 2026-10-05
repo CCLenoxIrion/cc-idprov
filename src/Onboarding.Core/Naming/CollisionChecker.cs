@@ -42,8 +42,12 @@ public interface IDirectoryLookup
     /// </summary>
     Task<IReadOnlyList<DirectoryObjectRef>> FindProxyAddressOwnersAsync(string address, CancellationToken cancellationToken);
 
-    /// <summary>Objects that already use the E.164 number.</summary>
-    Task<IReadOnlyList<DirectoryObjectRef>> FindByPhoneNumberAsync(string e164, CancellationToken cancellationToken);
+    /// <summary>
+    /// Objects that already use the E.164 number, whatever display format the directory stores
+    /// (DECISIONS X9). <paramref name="extension"/> narrows the directory search; null for
+    /// identities derived before it was stored.
+    /// </summary>
+    Task<IReadOnlyList<DirectoryObjectRef>> FindByPhoneNumberAsync(string e164, string? extension, CancellationToken cancellationToken);
 }
 
 /// <summary>Identity values reserved by open (not closed) requests.</summary>
@@ -128,7 +132,7 @@ public sealed class CollisionChecker(IDirectoryLookup directory, IOpenRequestLoo
 
         if (identity.PhoneE164 is not null)
         {
-            foreach (var hit in (await directory.FindByPhoneNumberAsync(identity.PhoneE164, cancellationToken).ConfigureAwait(false)).Where(Foreign))
+            foreach (var hit in (await directory.FindByPhoneNumberAsync(identity.PhoneE164, identity.Extension, cancellationToken).ConfigureAwait(false)).Where(Foreign))
             {
                 collisions.Add(Directory(CollisionField.PhoneNumber, identity.PhoneE164, hit));
             }

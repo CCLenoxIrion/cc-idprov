@@ -24,7 +24,11 @@ builder.Services.AddDbContextFactory<OnboardingDbContext>(
         connectionString, sp.GetRequiredService<IActorAccessor>(), sp.GetRequiredService<TimeProvider>()),
     ServiceLifetime.Scoped);
 
-builder.Services.AddOnboardingIntegrations(builder.Configuration);
+builder.Services.AddOnboardingIntegrations(builder.Configuration, async (sp, ct) =>
+{
+    await using var db = await sp.GetRequiredService<IDbContextFactory<OnboardingDbContext>>().CreateDbContextAsync(ct);
+    return (await db.GlobalConfig.AsNoTracking().SingleAsync(ct)).Settings;
+});
 builder.Services.AddSecretProtection(
     builder.Configuration,
     builder.Environment.IsDevelopment(),

@@ -57,6 +57,12 @@ public sealed class FakeWorldOptions
     public List<string> ExistingSamAccountNames { get; set; } = [];
 
     public List<FakeFault> Faults { get; set; } = [];
+
+    /// <summary>
+    /// Set automatically when the on-prem group is not <c>Fake</c>: cloud fakes create their
+    /// users themselves instead of relying on the fake AD and sync.
+    /// </summary>
+    public bool DetachedFromOnPrem { get; set; }
 }
 
 public sealed class FakeAdUser
