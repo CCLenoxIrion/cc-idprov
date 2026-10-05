@@ -1,0 +1,6 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Phase 3: IStepExecutor per step key + fake executors. -->
+  <ItemGroup>
+    <ProjectReference Include="..\Onboarding.Core\Onboarding.Core.csproj" />
+  </ItemGroup>
+</Project>

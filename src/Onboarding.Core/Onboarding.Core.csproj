@@ -1,0 +1,6 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Domain logic only: no I/O, no package references beyond the BCL. -->
+  <ItemGroup>
+    <InternalsVisibleTo Include="Onboarding.Tests" />
+  </ItemGroup>
+</Project>

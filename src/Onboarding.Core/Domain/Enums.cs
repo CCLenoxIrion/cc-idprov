@@ -1,0 +1,59 @@
+namespace Onboarding.Core.Domain;
+
+/// <summary>Request type. v1 implements only <see cref="Onboarding"/>; Offboarding follows in v2.</summary>
+public enum RequestType
+{
+    Onboarding,
+    Offboarding,
+}
+
+/// <summary>Request status (SPEC §5).</summary>
+public enum RequestStatus
+{
+    Draft,
+    PendingApproval,
+    Approved,
+    Running,
+    Waiting,
+    AwaitingChecklist,
+    Completed,
+    Failed,
+    NeedsInput,
+    Cancelled,
+}
+
+/// <summary>Step status (SPEC §5).</summary>
+public enum StepStatus
+{
+    Pending,
+    Running,
+
+    /// <summary>Precondition not met, retry scheduled.</summary>
+    Waiting,
+    Done,
+    Skipped,
+    Failed,
+
+    /// <summary>Cannot be automated; an ITAdmin performs it and marks it done.</summary>
+    ManualTask,
+}
+
+public enum ChecklistItemStatus
+{
+    Open,
+    Done,
+    NotApplicable,
+}
+
+public enum ChecklistScope
+{
+    Global,
+    Area,
+    Department,
+}
+
+public enum Role
+{
+    Requester,
+    ITAdmin,
+}
