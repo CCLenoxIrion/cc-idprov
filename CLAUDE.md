@@ -38,9 +38,9 @@ Umbau dazukommt.
 | `src/Onboarding.Data` | EF Core + SQLite, `OnboardingDbContext`, Interceptors (Audit append-only, Config-Historie, Concurrency-Token), Migrations, Seed. |
 | `src/Onboarding.Web` | Blazor Server: Auth (`Auth/`), Use-Case-Services (`Services/`), Seiten (`Components/Pages`). Services holen I/O-Daten (Konfig-Snapshot, Kollisionsprüfung, Verschlüsselung) und delegieren Entscheidungen an `RequestWorkflow`. |
 | `src/Onboarding.Worker` | Worker Service / Windows-Dienst: `WorkerEngine` (Claim mit Concurrency-Token, ein Running-Step pro Auftrag, Aufträge parallel), Polling-Loop, Single-Instance-Lock. Entscheidungen über Status/Backoff/Timeout/Audit trifft `RequestWorkflow` (Core). |
-| `src/Onboarding.Steps` | `IStepExecutor` je Step-Key (`Execution/`), simulierte Fake-Welt mit Executors (`Fakes/World/`), Fake-Verzeichnis für das Web, Startpasswort-Verschlüsselung, Skript-Executor für DryRun/Real (`Scripts/`: pwsh, JSON über stdin/stdout, Timeout mit Kill), LDAP-Lese-Adapter für das Web (`Ldap/`). |
+| `src/Onboarding.Steps` | `IStepExecutor` je Step-Key (`Execution/`), simulierte Fake-Welt mit Executors (`Fakes/World/`), Fake-Verzeichnis für das Web, Startpasswort-Verschlüsselung, Skript-Executor für DryRun/Real (`Scripts/`: pwsh, JSON über stdin/stdout, Timeout mit Kill, Cloud-Optionen), LDAP-Lese-Adapter (`Ldap/`) und Graph-Lese-Adapter (`Graph/`) für das Web, Zertifikats-Ablaufprüfung (`Security/`). |
 | `tests/Onboarding.Tests` | xUnit. |
-| `scripts/steps`, `scripts/common` | PowerShell-7-Step-Skripte, je Step ein Skript, JSON über stdin/stdout, Secrets nur über stdin (DECISIONS X3); jedes Ergebnis außer `done` mit festem Grund-Code (X10). |
+| `scripts/steps`, `scripts/common` | PowerShell-7-Step-Skripte (On-Prem und Cloud, `CloudHelpers.ps1`), je Step ein Skript, JSON über stdin/stdout, Secrets nur über stdin (DECISIONS X3); jedes Ergebnis außer `done` mit festem Grund-Code (X10). |
 | `scripts/jea` | JEA-Endpunkte `CC.Onboarding` (DC01) und `CC.Onboarding.Sync` (CC01): Module, Role Capabilities, Registrierung (X5). Läuft unter **Windows PowerShell 5.1**: keine PS7-Syntax, `Join-Path` nur mit zwei Teilen, UTF-8 mit BOM. |
 | `scripts/tools` | Werkzeuge für den Worker-Host (pwsh 7), z. B. der manuelle JEA-Testaufruf. |
 | `scripts/tests` | Pester-5-Tests mit gemockten Cmdlets; `Stubs.ps1` wirft bei vergessenem Mock. |
@@ -76,10 +76,13 @@ Fehlerinjektion und Verzögerungen der Fake-Welt: Abschnitt `FakeWorld` in
 
 Konfiguration Web (`appsettings*.json`): `Authentication:Mode` (`EntraId` | `Dev`, Dev nur in
 Development), `AzureAd` (TenantId/ClientId), `Integrations:Read:Directory` (`Fake` | `Real` = LDAP),
-`Integrations:Read:Licenses` (bis 4b nur `Fake`), `SecretProtection:Mode` (`Certificate` | `DevelopmentPem`).
+`Integrations:Read:Graph` (`Fake` | `Real` = Lizenzen + Cloud-only-Kollisionen, `Integrations:Read:GraphAuth`),
+`Web:CertificateWarningDays`, `SecretProtection:Mode` (`Certificate` | `DevelopmentPem`).
 
-Konfiguration Worker: `Integrations:Steps:OnPrem` / `:Cloud` (`Fake` | `DryRun` | `Real`, Cloud bis 4b
-nur `Fake`), `Integrations:Scripts` (PwshPath, ScriptsDirectory, Timeout, JEA-Endpunktnamen).
+Konfiguration Worker: `Integrations:Steps:OnPrem` / `:Cloud` (`Fake` | `DryRun` | `Real`; Cloud echt nur mit
+On-Prem echt), `Integrations:Scripts` (PwshPath, ScriptsDirectory, Timeout, TimeoutOverrides, JEA-Endpunktnamen),
+`Integrations:Cloud` (TenantId, AppId, CertificateThumbprint, ExchangeOrganization, ManualSteps),
+`Worker:ExecutionTimeout` (> längster Skript-Timeout). Freigaberegel: `GlobalConfig.ApprovalPolicy` (DECISIONS A1).
 
 PowerShell-Skripte werden von Claude **nicht** ausgeführt (kein pwsh, kein Pester). Der Mensch
 testet lokal:

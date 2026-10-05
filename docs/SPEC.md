@@ -274,7 +274,7 @@ Die bestehenden interaktiven Skripte (`Read-Host`) werden in parametrisierte, ni
 ## 9. Sicherheit / TISAX
 
 - Startpasswort: im UI maskiert, in der DB nur verschlüsselt (DPAPI, Maschinenkontext des Worker-Hosts) bis `AD.CreateUser` erledigt ist, danach gelöscht; nie im Audit-Log, nie in Step-Output oder Fehlermeldungen; Übergabe an Prozess über stdin, nicht als Kommandozeilenparameter.
-- Vier-Augen: jeder Auftrag braucht Freigabe durch `ITAdmin`, Antragsteller ≠ Freigebender.
+- ~~Vier-Augen: jeder Auftrag braucht Freigabe durch `ITAdmin`, Antragsteller ≠ Freigebender.~~ **Überholt durch DECISIONS A1** (Selbstfreigabe mit Pflicht-Begründung, konfigurierbar).
 - gMSA mit **delegierten** Rechten: Benutzer anlegen/ändern nur in den konfigurierten OUs; Schreibrechte auf `F:\Home` und NETLOGON.
 - **Risiko, bewusst dokumentieren**: SMB-Shares auf einem DC anlegen erfordert lokale Adminrechte auf dem DC; Schreibrechte auf NETLOGON erlauben Code-Ausführung bei jeder Anmeldung. Das Dienstkonto ist damit faktisch Tier 0 und muss so behandelt werden (Host-Härtung, keine interaktive Anmeldung, Monitoring).
 - CC01 ist Entra-Connect-Server und damit Tier 0 (das `MSOL_`-Konto hat Replikationsrechte auf das AD). Der Worker darf nicht auf einem Host laufen, auf dem Nicht-Admins Code ausführen können (Web-Apps, CI-Runner).

@@ -42,6 +42,8 @@ builder.Services.AddSecretProtection(
 builder.Services.AddScoped(sp => new RequestWorkflow(sp.GetRequiredService<TimeProvider>()));
 builder.Services.AddScoped<RequestService>();
 builder.Services.AddScoped<ConfigService>();
+builder.Services.AddSingleton<Onboarding.Steps.Security.ICertificateInfoSource, Onboarding.Steps.Security.StoreCertificateInfoSource>();
+builder.Services.AddScoped<CertificateStatusService>();
 
 var app = builder.Build();
 

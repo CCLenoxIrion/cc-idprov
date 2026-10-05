@@ -31,4 +31,7 @@ internal static partial class WorkerLog
 
     [LoggerMessage(Level = LogLevel.Error, Message = "Worker pass failed")]
     public static partial void PassFailed(this ILogger logger, Exception exception);
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "Certificate check failed")]
+    public static partial void CertificateCheckFailed(this ILogger logger, Exception exception);
 }

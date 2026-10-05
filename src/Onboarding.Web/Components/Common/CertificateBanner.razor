@@ -1,0 +1,32 @@
+@* Certificate expiry warnings for ITAdmins (SPEC §9, DECISIONS X15). *@
+@inject CertificateStatusService Certificates
+
+@if (_warnings.Count > 0)
+{
+    <div class="alert @(_warnings.Any(w => w.Critical) ? "alert-danger" : "alert-warning") py-2 mb-3" data-testid="certificate-banner">
+        <strong>Zertifikate prüfen:</strong>
+        <ul class="mb-0">
+            @foreach (var warning in _warnings)
+            {
+                <li>@warning.Message</li>
+            }
+        </ul>
+    </div>
+}
+
+@code {
+    private IReadOnlyList<Onboarding.Core.Operations.CertificateWarning> _warnings = [];
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            _warnings = await Certificates.GetWarningsAsync();
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            // The banner must never break the page; the certificate store may be unavailable.
+            _warnings = [new("Zertifikate", "Zertifikatsstatus konnte nicht gelesen werden.", false)];
+        }
+    }
+}

@@ -20,6 +20,11 @@
         </div>
 
         <article class="content px-4">
+            <AuthorizeView Policy="@Policies.ITAdmin">
+                <Authorized>
+                    <CertificateBanner />
+                </Authorized>
+            </AuthorizeView>
             @Body
         </article>
     </main>

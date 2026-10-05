@@ -45,6 +45,8 @@ builder.Services.AddSingleton(builder.Configuration.GetSection("Worker").Get<Wor
 builder.Services.AddSingleton(sp => ActivatorUtilities.CreateInstance<WorkerEngine>(
     sp, sp.GetRequiredService<Onboarding.Core.Security.ISecretDecryptor>()));
 builder.Services.AddHostedService<Worker>();
+builder.Services.AddSingleton<Onboarding.Steps.Security.ICertificateInfoSource, Onboarding.Steps.Security.StoreCertificateInfoSource>();
+builder.Services.AddHostedService<CertificateMonitor>();
 
 var host = builder.Build();
 

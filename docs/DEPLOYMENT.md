@@ -1,8 +1,8 @@
-# Deployment-Checkliste – On-Prem (Phase 4a)
+# Deployment-Checkliste – On-Prem (Phase 4a) und Cloud (Phase 4b)
 
-Checkliste für die Inbetriebnahme von Web und Worker gegen das echte AD. Ausgeführt wird alles
-**von einem Menschen**; der Code selbst verbindet sich erst, wenn die jeweilige Gruppe auf `DryRun`
-bzw. `Real` steht. Cloud-Teil (Entra, EXO, Teams, Graph-App-Registrierungen) folgt mit Phase 4b.
+Checkliste für die Inbetriebnahme von Web und Worker gegen das echte AD und den echten Tenant.
+Ausgeführt wird alles **von einem Menschen**; der Code selbst verbindet sich erst, wenn die
+jeweilige Gruppe auf `DryRun` bzw. `Real` steht. Cloud-Teil: §11.
 
 Punkte mit **„zu verifizieren“** sind nicht aus der Spec oder Dokumentation belegbar und müssen vor
 dem Echtbetrieb an der Umgebung geprüft werden. Namen wie `svc-onboard$` sind Beispiele.
@@ -26,6 +26,8 @@ Begriffe:
 | Run-As-Konto DC01-Endpunkt | F:\Home (Ordner anlegen, ACL setzen), SMB-Freigaben anlegen, NETLOGON-Skriptordner schreiben | alles andere |
 | Run-As-Konto CC01-Endpunkt | Delta-Sync starten (`ADSyncOperators`) | alles andere |
 | Web-Konto | AD lesen (LDAP) | jedes Schreiben, JEA-Endpunkte, privater Schlüssel des Passwort-Zertifikats |
+| Worker-App-Registrierung (Cloud) | Graph: Benutzer lesen/`usageLocation` setzen, Lizenzen zuweisen, `subscribedSkus` lesen; EXO: Postfach-/Freigabepostfach-Rechte im Management Scope; Teams: Telefonie-Einstellungen (§11.2) | Gruppen schreiben (`GroupMember.ReadWrite.All` wird **nicht** vergeben), Verzeichnisrollen über die nötigen hinaus |
+| Web-Lese-App-Registrierung (Graph) | Lizenzen und Benutzer/Gruppen/Kontakte lesen (§11.3) | jedes Schreiben |
 
 ## 2. Konten anlegen
 
@@ -208,12 +210,16 @@ Erwartung in `jea-dc.json`:
       "PwshPath": "C:\\Program Files\\PowerShell\\7\\pwsh.exe",
       "ScriptsDirectory": "C:\\Program Files\\CCOnboarding\\scripts",
       "Timeout": "00:04:00",
+      "TimeoutOverrides": { "EXO.": "00:06:00", "Teams.": "00:10:00" },
       "DcConfigurationName": "CC.Onboarding",
       "SyncConfigurationName": "CC.Onboarding.Sync"
     }
-  }
+  },
+  "Worker": { "ExecutionTimeout": "00:12:00" }
   ```
-  `Worker:ExecutionTimeout` muss größer als `Scripts:Timeout` bleiben.
+  `Worker:ExecutionTimeout` muss größer als der längste Skript-Timeout sein (inkl.
+  `TimeoutOverrides`), sonst bricht der Start ab. Teams-Steps brauchen mehr Zeit, weil das Modul
+  `MicrosoftTeams` langsam lädt.
 
 ## 6. Passwort-Zertifikat (DECISIONS W2/P1)
 
@@ -243,7 +249,7 @@ sc.exe failure Onboarding.Worker reset= 86400 actions= restart/60000
   "Integrations": {
     "Read": {
       "Directory": "Real",
-      "Licenses": "Fake",
+      "Graph": "Fake",
       "Ldap": { "Server": "", "Port": 389, "Timeout": "00:00:15", "PageSize": 500 }
     }
   }
@@ -262,7 +268,7 @@ Install-Module Pester -MinimumVersion 5.5.0 -Scope CurrentUser
 Invoke-Pester ./scripts/tests -Output Detailed
 ```
 
-Alle AD-/SMB-/ADSync-Cmdlets sind gemockt; `scripts/tests/Stubs.ps1` definiert werfende Stubs, damit
+Alle AD-/SMB-/ADSync-, Graph-, EXO- und Teams-Cmdlets sind gemockt; `scripts/tests/Stubs.ps1` definiert werfende Stubs, damit
 ein vergessener Mock fehlschlägt statt ein echtes System zu berühren. Die Tests prüfen bei jedem
 `needsInput`/`failed`/`waiting` auch den Grund-Code (DECISIONS X10).
 
@@ -297,8 +303,138 @@ Ternary-Operator sind nur durch diesen 5.1-Lauf abgedeckt.
    bereinigter Meldung; Details nur im Worker-Log.
 7. Erst danach Bereiche wieder auf die echten OUs stellen.
 
-Cloud bleibt bis Phase 4b auf `Fake`; die Fake-Cloud legt ihre Benutzer dann selbst an
-(`DetachedFromOnPrem`).
+Solange Cloud auf `Fake` steht, legt die Fake-Cloud ihre Benutzer selbst an (`DetachedFromOnPrem`).
+Cloud = `DryRun`/`Real` ist nur mit On-Prem `DryRun`/`Real` erlaubt (sonst Startfehler). Cloud-Tests:
+§11.8.
+
+## 11. Cloud (Phase 4b)
+
+### 11.1 Zertifikate (beide ≤ 1 Jahr Laufzeit, SPEC §9)
+
+- [ ] **Worker-App-Zertifikat** auf `<ONB-HOST>` in `LocalMachine\My`, privater Schlüssel nicht
+  exportierbar, Private-Key-ACL nur Worker-gMSA (+ Administratoren/SYSTEM). Öffentlichen Teil
+  (`.cer`) an die Worker-App-Registrierung hochladen.
+- [ ] **Web-Lese-Zertifikat** separat, Private-Key-ACL nur Web-Konto; öffentlichen Teil an die
+  Lese-App hochladen.
+- [ ] Ablaufwarnung (DECISIONS X15): Der Worker prüft beim Start und täglich Passwort- und
+  Cloud-Zertifikat, das Web sein Lese-Zertifikat. ITAdmins sehen ab `Web:CertificateWarningDays`
+  (Standard 30) Tagen vor Ablauf ein Banner; ebenso bei fehlendem Zertifikat oder wenn die letzte
+  Worker-Prüfung älter als 48 h ist.
+
+### 11.2 Worker-App-Registrierung
+
+- [ ] App-Registrierung „CC Onboarding Worker“, nur Zertifikat (kein Client-Secret).
+- [ ] **Graph-Anwendungsberechtigungen** (Admin-Zustimmung): `User.ReadWrite.All` (usageLocation),
+  `LicenseAssignment.ReadWrite.All` (assignLicense), `Organization.Read.All` (subscribedSkus).
+  `GroupMember.ReadWrite.All` aus SPEC §3 wird **nicht** vergeben: kein Cloud-Step schreibt Gruppen.
+  **Zu verifizieren**, ob `User.ReadWrite.All` für `usageLocation` reicht oder
+  `LicenseAssignment.ReadWrite.All` allein genügt.
+- [ ] **Exchange Online – RBAC for Applications** (statt `Exchange.ManageAsApp` mit globaler Rolle):
+  ```powershell
+  Connect-ExchangeOnline
+  New-ServicePrincipal -AppId <AppId> -ObjectId <ObjectId der Enterprise-App> -DisplayName 'CC Onboarding Worker'
+  New-ManagementScope -Name 'CC Onboarding' -RecipientRestrictionFilter '<Filter, siehe unten>'
+  New-ManagementRoleAssignment -App <ObjectId> -Role 'Mail Recipients' -CustomResourceScope 'CC Onboarding'
+  ```
+  - Der Scope muss **neue Benutzer und alle konfigurierten Freigabepostfächer** umfassen:
+    `Add-MailboxPermission` und `Add-RecipientPermission` laufen auf dem Freigabepostfach, nicht
+    auf dem Benutzer. Ein Scope nur über die neuen Benutzer reicht nicht.
+  - Möglicher Filter (**zu verifizieren**): Benutzer über `Company` der Bereiche
+    (`AreaConfig.Company`) und Freigabepostfächer über ein gesetztes Custom Attribute, z. B.
+    `(Company -eq '<Firma A>') -or (Company -eq '<Firma B>') -or (CustomAttribute10 -eq 'Onboarding')`;
+    an jedem Freigabepostfach `Set-Mailbox <Postfach> -CustomAttribute10 Onboarding`.
+    Alternative: Administrative Unit mit dynamischer Mitgliedschaft.
+  - **Zu verifizieren**, ob die Rolle `Mail Recipients` `Set-CASMailbox`, `Add-MailboxPermission`
+    und `Add-RecipientPermission` abdeckt; Prüfung:
+    ```powershell
+    Test-ServicePrincipalAuthorization -Identity <ObjectId> -Resource <Freigabepostfach>
+    Test-ServicePrincipalAuthorization -Identity <ObjectId> -Resource <Testbenutzer>
+    ```
+  - Neue Freigabepostfächer in der Abteilungskonfiguration ⇒ Scope-Attribut setzen.
+- [ ] **Teams**: Entra-Rolle für den Service Principal der App, **zu verifizieren**: „Teams
+  Telephony Administrator“ (bevorzugt) oder „Teams Administrator“ – je nachdem, was
+  `Set-CsPhoneNumberAssignment`, `Grant-Cs*Policy` und `Get-CsOnlineUser` app-only verlangen.
+- [ ] Conditional Access für Workload Identities: falls genutzt, die App auf den Worker-Host
+  beschränken (Standort/IP).
+
+### 11.3 Web-Lese-App-Registrierung (DECISIONS X6/X16)
+
+- [ ] Eigene App „CC Onboarding Web (lesend)“, nur Zertifikat, Anwendungsberechtigungen
+  `Organization.Read.All`, `User.Read.All`, `Group.Read.All`, `OrgContact.Read.All`.
+- [ ] Web-`appsettings.json`:
+  ```json
+  "Integrations": {
+    "Read": {
+      "Graph": "Real",
+      "GraphAuth": { "TenantId": "<GUID>", "ClientId": "<GUID>", "CertificateThumbprint": "<40 hex>" }
+    }
+  },
+  "Web": { "CertificateWarningDays": 30 }
+  ```
+- [ ] Lizenzübersicht im Auftragsformular kommt dann aus `subscribedSkus`; die Kollisionsprüfung
+  sucht zusätzlich Cloud-only-Objekte (Benutzer, Microsoft-365-Gruppen, Kontakte) in Entra.
+  Synchronisierte Objekte prüft weiter das AD.
+
+### 11.4 Module auf dem Worker-Host (feste Versionen, AllUsers)
+
+```powershell
+Install-Module Microsoft.Graph.Authentication -RequiredVersion <x.y.z> -Scope AllUsers
+Install-Module ExchangeOnlineManagement -RequiredVersion <x.y.z> -Scope AllUsers
+Install-Module MicrosoftTeams -RequiredVersion <x.y.z> -Scope AllUsers
+```
+
+- [ ] Versionen festhalten (hier eintragen) und Updates bewusst testen; Modulordner nur für
+  Administratoren beschreibbar (wie der Skriptordner).
+
+### 11.5 Worker-Konfiguration
+
+```json
+"Integrations": {
+  "Steps": { "OnPrem": "Real", "Cloud": "DryRun" },
+  "Cloud": {
+    "TenantId": "<GUID>",
+    "AppId": "<GUID>",
+    "CertificateThumbprint": "<40 hex>",
+    "ExchangeOrganization": "<tenant>.onmicrosoft.com",
+    "ManualSteps": []
+  }
+}
+```
+
+Ungültige Werte brechen den Start ab (Meldung nennt den Schlüssel, nie den Wert).
+
+### 11.6 Voicemail und Weiterleitung (SPEC §3, DECISIONS X13)
+
+- [ ] **Zu verifizieren**: app-only-Unterstützung von `Set-CsOnlineVoicemailUserSettings` und
+  `Set-CsUserCallingSettings`. Test mit einem Testbenutzer im DryRun und dann Real.
+- [ ] Nicht unterstützt ⇒ Step in `Integrations:Cloud:ManualSteps` eintragen
+  (`Teams.Voicemail`, `Teams.Forwarding`). Der Step liefert dann eine **ManualTask** mit fertigem
+  Befehl (nur UPN und Konfigurationswerte, keine Anmeldedaten) und verbindet sich nicht.
+
+### 11.7 Zu verifizieren (Cloud)
+
+- [ ] Eigentumsprüfung: `onPremisesSecurityIdentifier` des synchronisierten Benutzers = objectSid
+  aus `AD.CreateUser` (DECISIONS X14). Rückfall `onPremisesImmutableId` = Base64(objectGUID) nur
+  ohne gespeicherte SID; hängt am Source Anchor von Entra Connect.
+- [ ] Form der Graph-Fehler (`Exception.Response.StatusCode`) für 404/429/403.
+- [ ] `Get-EXOMailbox` bei nicht vorhandenem Postfach (wird als „nicht gefunden“ gewertet).
+- [ ] `Get-CsOnlineUser`: `FeatureTypes` enthält `PhoneSystem`, sobald MCOEV wirkt.
+- [ ] Graph-Filter auf `proxyAddresses`: Groß-/Kleinschreibung (es werden beide Präfixe
+  abgefragt) und ob `/contacts` den Lambda-Filter kann (Kontakte werden nur über `mail` gesucht).
+- [ ] Testpunkt X1: Lizenz, Postfach und Telefonnummer bei `accountEnabled = false`.
+
+### 11.8 Testreihenfolge Cloud
+
+1. Pester (§9), dann Web `Graph = Real`: Lizenzübersicht und eine bekannte Cloud-only-Adresse als
+   Kollision prüfen.
+2. Worker `OnPrem = Real`, `Cloud = DryRun` mit Testbenutzer: Jeder Cloud-Step endet mit
+   „Dry-Run – würde: …“ oder ist `Done`; Bericht prüfen. Warte-Steps (`Entra.WaitUser`,
+   `EXO.WaitMailbox`, `Teams.WaitUser`) laufen auch im Dry-Run gegen den echten Tenant.
+3. `Cloud = Real`, Worker neu starten, Steps „Erneut versuchen“. Lizenzen, Postfach,
+   Freigabepostfach-Rechte, Nummer, Policies, Voicemail und Weiterleitung prüfen.
+4. Idempotenz: alle Cloud-Steps erneut ausführen → `Done` ohne Änderung.
+5. Fehlerpfade: SKU ohne freie Lizenz → `failed` mit `no-free-license`; fremder Entra-Benutzer mit
+   gleicher UPN → `needsInput` mit `foreign-cloud-account`.
 
 ## Verworfene Alternativen
 
@@ -307,3 +443,4 @@ Cloud bleibt bis Phase 4b auf `Fake`; die Fake-Cloud legt ihre Benutzer dann sel
 | Home-Ordner, Freigabe und Anmeldeskript direkt vom Worker über Admin-Share (`\\DC01\F$`) bzw. UNC auf NETLOGON | Worker-gMSA bräuchte Schreibrechte auf F:\Home und NETLOGON bzw. lokale Admin-Rechte auf einem DC; Pfade kämen vom Worker (Traversal-Risiko). |
 | `New-SmbShare`/ACL-Änderungen per CIM-Session oder `Invoke-Command` mit Admin-Rechten | Gleiche Rechteausweitung (lokaler Admin auf DC01 = faktisch Domain Admin); keine Parametervalidierung auf dem Zielsystem. |
 | Worker-gMSA in `ADSyncOperators` auf CC01 | Erlaubt mehr als den Delta-Sync (alle ADSync-Cmdlets der Gruppe); JEA beschränkt auf genau `Start-OnbDeltaSync`. |
+| `Exchange.ManageAsApp` mit Verzeichnisrolle „Exchange Administrator“ | Ganzer Tenant statt Management Scope; RBAC for Applications begrenzt auf Benutzer und Freigabepostfächer (§11.2). |

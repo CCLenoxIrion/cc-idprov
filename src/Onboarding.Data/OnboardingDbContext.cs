@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 using Onboarding.Core.Configuration;
 using Onboarding.Core.Domain;
+using Onboarding.Core.Operations;
 using Onboarding.Data.Conversion;
 using Onboarding.Data.Entities;
 using Onboarding.Data.Seed;
@@ -19,6 +20,7 @@ public sealed class OnboardingDbContext(DbContextOptions<OnboardingDbContext> op
     public DbSet<AreaConfig> Areas => Set<AreaConfig>();
     public DbSet<DepartmentConfig> Departments => Set<DepartmentConfig>();
     public DbSet<ConfigHistoryEntry> ConfigHistory => Set<ConfigHistoryEntry>();
+    public DbSet<CertificateStatus> CertificateStatuses => Set<CertificateStatus>();
 
     protected override void ConfigureConventions(ModelConfigurationBuilder configurationBuilder)
     {
@@ -135,6 +137,14 @@ public sealed class OnboardingDbContext(DbContextOptions<OnboardingDbContext> op
             Json(b.Property(d => d.SharedMailboxes));
             Json(b.Property(d => d.LogonScript));
             Json(b.Property(d => d.Teams));
+        });
+
+        modelBuilder.Entity<CertificateStatus>(b =>
+        {
+            b.ToTable("CertificateStatus");
+            b.HasKey(c => c.Name);
+            b.Property(c => c.Name).HasMaxLength(64);
+            b.Property(c => c.Thumbprint).HasMaxLength(128);
         });
 
         modelBuilder.Entity<ConfigHistoryEntry>(b =>
