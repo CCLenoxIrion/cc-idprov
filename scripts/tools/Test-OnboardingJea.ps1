@@ -25,7 +25,7 @@ param(
     [Parameter(Mandatory)] [string] $ComputerName,
     [Parameter(Mandatory)] [ValidateSet('CC.Onboarding', 'CC.Onboarding.Logon', 'CC.Onboarding.Sync')] [string] $ConfigurationName,
     [ValidateSet('Modify', 'FullControl')] [string] $UserRight = 'Modify',
-    [string[]] $AdditionalAces = @('SYSTEM=FullControl', 'BUILTIN\Administrators=FullControl'),
+    [string[]] $AdditionalAces = @('S-1-5-18=FullControl', 'S-1-5-32-544=FullControl', 'CC\CC-Management-Lead=FullControl'),
     [ValidatePattern('^[a-z0-9]{1,20}$')] [string] $Sam = 'jeatest',
     [switch] $TriggerSync,
     [string] $OutFile

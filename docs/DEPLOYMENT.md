@@ -108,8 +108,8 @@ Allowlist, §4.1), beim Anmeldeskript Base64-Inhalt + SHA-256.
   | `HomeRoot` | `GlobalConfig.Home.LocalRoot` |
   | `ShareNamePattern` | `GlobalConfig.Home.ShareNamePattern` |
   | `NetbiosDomain` | `GlobalConfig.DomainNetBios` |
-  | `ShareFullAccess` | Vollzugriff auf Home-Freigaben neben dem Benutzer (Änderungsrecht). Bewusst strenger als der Bestand (Jeder = Vollzugriff), DECISIONS X18 |
-  | `HomeOwner` | Besitzer jedes Home-Ordners (Vererbung aus). **Zu verifizieren**: auf deutschem Windows heißt die Gruppe `VORDEFINIERT\Administratoren`; alternativ die SID `S-1-5-32-544` eintragen |
+  | `ShareFullAccess` | Vollzugriff auf Home-Freigaben neben dem Benutzer (Änderungsrecht). Bewusst strenger als der Bestand (Jeder = Vollzugriff), DECISIONS X18. SMB-Befehle brauchen den Kontonamen in der Sprache des Servers: auf DC01 `VORDEFINIERT\Administratoren` (verifiziert) |
+  | `HomeOwner` | Besitzer jedes Home-Ordners (Vererbung aus): `S-1-5-32-544`. `BUILTIN\Administrators` ist auf dem deutschen DC01 **nicht** auflösbar (verifiziert), SIDs sind sprachunabhängig |
   | `HomeUserRights` | erlaubte Werte für `GlobalConfig.Home.UserRight` (`Modify`, `FullControl`) |
   | `HomeAceAllowlist` | **jeder** Principal aus `GlobalConfig.Home.AdditionalAces` und aus `HomeAdditionalAces` aller Abteilungen, jeweils mit den erlaubten Rechten |
 
@@ -208,13 +208,20 @@ Erwartung:
 - Soll: Vererbung aus, Besitzer `HomeOwner`, Benutzer mit `GlobalConfig.Home.UserRight`
   (Startwert **Ändern** – bewusste Abweichung vom uneinheitlichen Bestand, damit Benutzer keine
   Rechte ändern können), dazu `GlobalConfig.Home.AdditionalAces` (Startwert SYSTEM und
-  BUILTIN\Administrators = Vollzugriff) und `HomeAdditionalAces` der Abteilung (gleicher Principal:
+  Administratoren als SIDs `S-1-5-18`/`S-1-5-32-544` sowie `CC\CC-Management-Lead`, alle Vollzugriff)
+  und `HomeAdditionalAces` der Abteilung (gleicher Principal:
   Abteilung gewinnt). Alles mit Vererbung auf Unterordner und Dateien.
 - Vorhandener Ordner mit abweichenden Rechten ⇒ Step `NeedsInput` mit `home-acl-mismatch` und den
   Abweichungen; „Überschreiben“ setzt die Rechte vollständig auf das Soll.
-- [ ] **Zu verifizieren** auf DC01: `NTAccount`-Auflösung von `SYSTEM` und
-  `BUILTIN\Administrators` (Sprache des Betriebssystems); sonst SIDs (`S-1-5-18`,
-  `S-1-5-32-544`) im Admin-UI **und** in der Allowlist verwenden.
+- Verifiziert auf DC01 (de-DE): `SYSTEM` und `VORDEFINIERT\Administratoren` sind auflösbar,
+  `BUILTIN\Administrators` nicht. Eingebaute Konten deshalb als SID im Admin-UI **und** in der
+  Allowlist (`S-1-5-18`, `S-1-5-32-544`).
+- Bestandsaufnahme (2026-10, 120 Home-Ordner, 114 mit AD-Konto): `CC-Management-Lead` = Vollzugriff
+  bei 90 – Standard bis 2025, unabhängig von Abteilung, Vorgesetztem und Gruppen. 2026 wich die
+  Praxis ab (keine Lead-Rechte); das wurde als Versehen bewertet, Lead ist global konfiguriert.
+  `CC-Management` (16 Ordner, ohne erkennbare Regel) und `CC\Administrator` (über Domänen-Admins in
+  den lokalen Administratoren enthalten) werden nicht konfiguriert. Ausnahmen, z. B. eine neue
+  Leitungskraft, werden nach dem Onboarding von Hand angepasst.
 
 ## 5. Worker-Host (`<ONB-HOST>`)
 

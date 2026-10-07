@@ -39,8 +39,10 @@ public static class SeedData
             UserRight = HomeRight.Modify,
             AdditionalAces =
             [
-                new HomeAce { Principal = "SYSTEM", Right = HomeRight.FullControl },
-                new HomeAce { Principal = @"BUILTIN\Administrators", Right = HomeRight.FullControl },
+                // Well-known SIDs instead of names: names are localized (DC01 is German, DEPLOYMENT §4.5).
+                new HomeAce { Principal = "S-1-5-18", Right = HomeRight.FullControl },
+                new HomeAce { Principal = "S-1-5-32-544", Right = HomeRight.FullControl },
+                new HomeAce { Principal = @"CC\CC-Management-Lead", Right = HomeRight.FullControl },
             ],
         },
         LogonScript = new LogonScriptLocationConfig

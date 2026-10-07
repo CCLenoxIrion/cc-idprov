@@ -23,7 +23,9 @@
 <div class="form-text mb-2">
     Neue Principals und Rechte müssen zusätzlich in der Allowlist des JEA-Endpunkts auf dem Fileserver
     eingetragen werden (<code>OnboardingEndpoint.psd1</code>, <code>HomeAceAllowlist</code>), sonst lehnt der
-    Endpunkt den Home-Ordner ab (<code>ace-not-allowed</code>).
+    Endpunkt den Home-Ordner ab (<code>ace-not-allowed</code>). Eingebaute Konten als SID eintragen
+    (<code>S-1-5-18</code> = SYSTEM, <code>S-1-5-32-544</code> = Administratoren), weil ihre Namen von der
+    Sprache des Servers abhängen.
 </div>
 
 @code {
