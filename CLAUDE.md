@@ -43,7 +43,7 @@ Umbau dazukommt.
 | `scripts/steps`, `scripts/common` | PowerShell-7-Step-Skripte (On-Prem und Cloud, `CloudHelpers.ps1`), je Step ein Skript, JSON über stdin/stdout, Secrets nur über stdin (DECISIONS X3); jedes Ergebnis außer `done` mit festem Grund-Code (X10). |
 | `scripts/jea` | JEA-Endpunkte `CC.Onboarding` (DC01 = Fileserver, Home-Ordner/-Freigabe, NTFS-Allowlist X17), `CC.Onboarding.Logon` (DC03, Anmeldeskripte, gMSA) und `CC.Onboarding.Sync` (CC01): Module, Role Capabilities, Registrierung (X5). Läuft unter **Windows PowerShell 5.1**: keine PS7-Syntax, `Join-Path` nur mit zwei Teilen, UTF-8 mit BOM. |
 | `scripts/tools` | Werkzeuge für den Worker-Host (pwsh 7), z. B. der manuelle JEA-Testaufruf. |
-| `scripts/tests` | Pester-5-Tests mit gemockten Cmdlets; `Stubs.ps1` wirft bei vergessenem Mock. |
+| `scripts/tests` | Pester-5-Tests mit gemockten Cmdlets; `Stubs.ps1` wirft bei vergessenem Mock; `TestEnv.ps1` überspringt die pwsh-7-Tests unter 5.1. |
 | `docs/DEPLOYMENT.md` | Checkliste für Rechte, JEA-Registrierung, Dienste und Testreihenfolge. |
 
 ## Build / Test
@@ -88,7 +88,8 @@ PowerShell-Skripte werden von Claude **nicht** ausgeführt (kein pwsh, kein Pest
 testet lokal:
 
 ```powershell
-Invoke-Pester ./scripts/tests -Output Detailed   # Pester >= 5.5
+pwsh -NoProfile -Command "Invoke-Pester ./scripts/tests -Output Detailed"   # Pester >= 5.5, Gesamtsuite nur unter pwsh 7
+powershell.exe -NoProfile -Command "Invoke-Pester ./scripts/tests/JeaEndpoint.Tests.ps1 -Output Detailed"   # JEA unter 5.1
 ```
 
 Hinweis Cloud-Umgebung: `builds.dotnet.microsoft.com` ist gesperrt; das .NET-10-SDK kommt

@@ -295,8 +295,13 @@ sc.exe failure Onboarding.Worker reset= 86400 actions= restart/60000
 
 ```powershell
 Install-Module Pester -MinimumVersion 5.5.0 -Scope CurrentUser
-Invoke-Pester ./scripts/tests -Output Detailed
+pwsh -NoProfile -Command "Invoke-Pester ./scripts/tests -Output Detailed"
 ```
+
+Die Gesamtsuite läuft unter **PowerShell 7 (`pwsh`)**, weil die Step-Skripte `#Requires -Version 7.2`
+tragen. Unter Windows PowerShell 5.1 überspringen `AdSteps`, `CloudSteps`, `JeaSteps` und
+`OnboardingStep` ihre Tests mit einer Warnung (`scripts/tests/TestEnv.ps1`). Unter 5.1 läuft nur
+`JeaEndpoint.Tests.ps1`, siehe unten.
 
 Alle AD-/SMB-/ADSync-, Graph-, EXO- und Teams-Cmdlets sind gemockt; `scripts/tests/Stubs.ps1` definiert werfende Stubs, damit
 ein vergessener Mock fehlschlägt statt ein echtes System zu berühren. Die Tests prüfen bei jedem

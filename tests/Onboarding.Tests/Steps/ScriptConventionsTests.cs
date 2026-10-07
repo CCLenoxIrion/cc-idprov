@@ -33,7 +33,13 @@ public sealed partial class ScriptConventionsTests
     public static TheoryData<string> WindowsPowerShellFiles() => Files(
         Directory.EnumerateFiles(Path.Combine(ScriptsDirectory, "jea"), "*", SearchOption.AllDirectories)
             .Append(Path.Combine(ScriptsDirectory, "tests", "JeaEndpoint.Tests.ps1"))
-            .Append(Path.Combine(ScriptsDirectory, "tests", "Stubs.ps1")));
+            .Append(Path.Combine(ScriptsDirectory, "tests", "Stubs.ps1"))
+            .Append(Path.Combine(ScriptsDirectory, "tests", "TestEnv.ps1")));
+
+    /// <summary>Test files of the PowerShell 7 step scripts: everything but the JEA endpoint tests.</summary>
+    public static TheoryData<string> Pwsh7TestFiles() => Files(
+        Directory.EnumerateFiles(Path.Combine(ScriptsDirectory, "tests"), "*.Tests.ps1")
+            .Where(p => !string.Equals(Path.GetFileName(p), "JeaEndpoint.Tests.ps1", StringComparison.OrdinalIgnoreCase)));
 
     [Theory]
     [MemberData(nameof(AllPowerShellFiles))]
@@ -49,6 +55,20 @@ public sealed partial class ScriptConventionsTests
     {
         var violations = Violations(File.ReadAllLines(Path.Combine(ScriptsDirectory, relativePath)));
         Assert.True(violations.Count == 0, $"{relativePath}:\n{string.Join('\n', violations)}");
+    }
+
+    [Theory]
+    [MemberData(nameof(Pwsh7TestFiles))]
+    public void Pwsh7_test_files_skip_under_windows_powershell(string relativePath)
+    {
+        var text = File.ReadAllText(Path.Combine(ScriptsDirectory, relativePath));
+        Assert.Contains("BeforeDiscovery {", text, StringComparison.Ordinal);
+        Assert.Contains("'TestEnv.ps1'", text, StringComparison.Ordinal);
+        Assert.Contains("if ($PSVersionTable.PSVersion.Major -lt 7) { return }", text, StringComparison.Ordinal);
+
+        var describes = TopLevelDescribe().Matches(text);
+        Assert.NotEmpty(describes);
+        Assert.All(describes, d => Assert.Contains("-Skip:$SkipUnlessPwsh7", d.Value, StringComparison.Ordinal));
     }
 
     [Theory]
@@ -119,4 +139,7 @@ public sealed partial class ScriptConventionsTests
 
     [GeneratedRegex(@"^\s*#Requires\s+-Version\s+[6-9]", RegexOptions.IgnoreCase)]
     private static partial Regex RequiresPs7();
+
+    [GeneratedRegex(@"^Describe\b.*$", RegexOptions.Multiline)]
+    private static partial Regex TopLevelDescribe();
 }

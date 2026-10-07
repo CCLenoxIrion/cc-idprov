@@ -1,7 +1,12 @@
 ﻿#Requires -Modules @{ ModuleName = 'Pester'; ModuleVersion = '5.5.0' }
 <# Tests of AD.CreateUser, AD.Groups, AD.Enable with mocked AD cmdlets. #>
 
+BeforeDiscovery {
+    . (Join-Path $PSScriptRoot 'TestEnv.ps1')
+}
+
 BeforeAll {
+    if ($PSVersionTable.PSVersion.Major -lt 7) { return }
     . (Join-Path $PSScriptRoot 'Stubs.ps1')
     . ([System.IO.Path]::Combine($PSScriptRoot, '..', 'steps', 'AD.CreateUser.ps1'))
     . ([System.IO.Path]::Combine($PSScriptRoot, '..', 'steps', 'AD.Groups.ps1'))
@@ -37,7 +42,7 @@ BeforeAll {
     }
 }
 
-Describe 'AD.CreateUser' {
+Describe 'AD.CreateUser' -Skip:$SkipUnlessPwsh7 {
     BeforeEach {
         Mock Get-ADUser -ParameterFilter { $Identity } { $script:Manager }
         Mock Get-ADObject { $null }
@@ -203,7 +208,7 @@ Describe 'AD.CreateUser' {
     }
 }
 
-Describe 'AD.Groups' {
+Describe 'AD.Groups' -Skip:$SkipUnlessPwsh7 {
     BeforeEach {
         Mock Add-ADGroupMember { }
         Mock Get-ADGroup { [pscustomobject]@{ DistinguishedName = 'CN=GG-Vertrieb,OU=Groups,DC=example,DC=test' } }
@@ -248,7 +253,7 @@ Describe 'AD.Groups' {
     }
 }
 
-Describe 'AD.Enable' {
+Describe 'AD.Enable' -Skip:$SkipUnlessPwsh7 {
     BeforeEach { Mock Enable-ADAccount { } }
 
     It 'enables a disabled own account' {
@@ -272,7 +277,7 @@ Describe 'AD.Enable' {
     }
 }
 
-Describe 'Get-AdUserSid' {
+Describe 'Get-AdUserSid' -Skip:$SkipUnlessPwsh7 {
     It 'returns <Expected> for <Name>' -TestCases @(
         @{ Name = 'SID property'; User = [pscustomobject]@{ SID = 'S-1-5-21-1-2-3-1105' }; Expected = 'S-1-5-21-1-2-3-1105' }
         @{ Name = 'objectSid property'; User = [pscustomobject]@{ objectSid = 'S-1-5-21-1-2-3-500' }; Expected = 'S-1-5-21-1-2-3-500' }
@@ -284,7 +289,7 @@ Describe 'Get-AdUserSid' {
     }
 }
 
-Describe 'DN helpers' {
+Describe 'DN helpers' -Skip:$SkipUnlessPwsh7 {
     It 'Get-ParentDn of <Dn>' -TestCases @(
         @{ Dn = 'CN=Lenox Irion,OU=Users,OU=Biology,OU=Medical,OU=CleanControlling,DC=example,DC=test'; Parent = 'OU=Users,OU=Biology,OU=Medical,OU=CleanControlling,DC=example,DC=test' }
         @{ Dn = 'CN=Irion\, Lenox,OU=Users,DC=example,DC=test'; Parent = 'OU=Users,DC=example,DC=test' }

@@ -1,7 +1,12 @@
 ﻿#Requires -Modules @{ ModuleName = 'Pester'; ModuleVersion = '5.5.0' }
 <# Tests of the step scripts that call JEA endpoints (Invoke-JeaFunction mocked). #>
 
+BeforeDiscovery {
+    . (Join-Path $PSScriptRoot 'TestEnv.ps1')
+}
+
 BeforeAll {
+    if ($PSVersionTable.PSVersion.Major -lt 7) { return }
     . (Join-Path $PSScriptRoot 'Stubs.ps1')
     . ([System.IO.Path]::Combine($PSScriptRoot, '..', 'steps', 'Home.Folder.ps1'))
     . ([System.IO.Path]::Combine($PSScriptRoot, '..', 'steps', 'Home.Share.ps1'))
@@ -9,7 +14,7 @@ BeforeAll {
     . ([System.IO.Path]::Combine($PSScriptRoot, '..', 'steps', 'Sync.Delta.ps1'))
 }
 
-Describe 'Home.Folder / Home.Share' {
+Describe 'Home.Folder / Home.Share' -Skip:$SkipUnlessPwsh7 {
     It 'Home.Share passes only the sam (no paths) to the file server endpoint' {
         Mock Invoke-JeaFunction { [pscustomobject]@{ status = 'done'; reason = 'ok'; plannedActions = @(); output = [pscustomobject]@{} } }
         $result = Invoke-HomeShare (New-TestStepInput -Step 'Home.Share') (New-StepContext -DryRun $false)
@@ -79,7 +84,7 @@ Describe 'Home.Folder / Home.Share' {
     }
 }
 
-Describe 'Logon.Script' {
+Describe 'Logon.Script' -Skip:$SkipUnlessPwsh7 {
     It 'forwards content, hash, force and dry-run' {
         Mock Invoke-JeaFunction { [pscustomobject]@{ status = 'needsInput'; code = 'logon-script-modified'; reason = 'manuell geändert'; plannedActions = @(); output = $null } }
         $in = New-TestStepInput -Step 'Logon.Script' -Force
@@ -107,7 +112,7 @@ Describe 'Logon.Script' {
     }
 }
 
-Describe 'Sync.Delta' {
+Describe 'Sync.Delta' -Skip:$SkipUnlessPwsh7 {
     It 'calls the parameterless function on the sync endpoint' {
         Mock Invoke-JeaFunction { [pscustomobject]@{ status = 'waiting'; code = 'sync-busy'; reason = 'busy'; plannedActions = @(); output = $null } }
         $result = Invoke-DeltaSync (New-TestStepInput -Step 'Sync.Delta') (New-StepContext -DryRun $false)

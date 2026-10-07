@@ -1,12 +1,17 @@
 ﻿#Requires -Modules @{ ModuleName = 'Pester'; ModuleVersion = '5.5.0' }
 <# Tests of the shared module Onboarding.Step.psm1. Run: Invoke-Pester ./scripts/tests #>
 
+BeforeDiscovery {
+    . (Join-Path $PSScriptRoot 'TestEnv.ps1')
+}
+
 BeforeAll {
+    if ($PSVersionTable.PSVersion.Major -lt 7) { return }
     . (Join-Path $PSScriptRoot 'Stubs.ps1')
     Import-Module ([System.IO.Path]::Combine($PSScriptRoot, '..', 'common', 'Onboarding.Step.psm1')) -Force
 }
 
-Describe 'ConvertTo-LdapFilterValue (RFC 4515)' {
+Describe 'ConvertTo-LdapFilterValue (RFC 4515)' -Skip:$SkipUnlessPwsh7 {
     It 'escapes <Value>' -TestCases @(
         @{ Value = 'lirion'; Expected = 'lirion' }
         @{ Value = '*'; Expected = '\2a' }
@@ -19,7 +24,7 @@ Describe 'ConvertTo-LdapFilterValue (RFC 4515)' {
     }
 }
 
-Describe 'Assert-SamAccountName' {
+Describe 'Assert-SamAccountName' -Skip:$SkipUnlessPwsh7 {
     It 'accepts <Sam>' -TestCases @(@{ Sam = 'lirion' }, @{ Sam = 'a1' }, @{ Sam = 'abcdefghijklmnopqrst' }) {
         { Assert-SamAccountName $Sam } | Should -Not -Throw
     }
@@ -31,7 +36,7 @@ Describe 'Assert-SamAccountName' {
     }
 }
 
-Describe 'Get-SafeErrorReason' {
+Describe 'Get-SafeErrorReason' -Skip:$SkipUnlessPwsh7 {
     It 'never returns raw exception messages' {
         $raw = [System.Exception]::new('Kennwort Geheim-Start!2026 für CN=Lenox Irion abgelehnt')
         $reason = Get-SafeErrorReason $raw
@@ -82,7 +87,7 @@ Describe 'Get-SafeErrorReason' {
     }
 }
 
-Describe 'New-StepResult codes' {
+Describe 'New-StepResult codes' -Skip:$SkipUnlessPwsh7 {
     It 'done needs no code' {
         (New-StepResult -Context (New-StepContext -DryRun $false) -Status done).code | Should -BeNullOrEmpty
     }
@@ -109,7 +114,7 @@ Describe 'New-StepResult codes' {
     }
 }
 
-Describe 'Invoke-StepMain' {
+Describe 'Invoke-StepMain' -Skip:$SkipUnlessPwsh7 {
     It 'writes exactly one JSON object and turns exceptions into sanitized failures' {
         $handler = { param($In, $Context) throw [System.Exception]::new("Geheim $($In['initialPassword'])") }
         $json = (New-TestStepInput) | ConvertTo-Json -Depth 10
@@ -136,7 +141,7 @@ Describe 'Invoke-StepMain' {
     }
 }
 
-Describe 'Invoke-StepChange' {
+Describe 'Invoke-StepChange' -Skip:$SkipUnlessPwsh7 {
     It 'only records in dry-run' {
         $context = New-StepContext -DryRun $true
         $script:called = $false
@@ -151,7 +156,7 @@ Describe 'Invoke-StepChange' {
     }
 }
 
-Describe 'ConvertFrom-JeaResult' {
+Describe 'ConvertFrom-JeaResult' -Skip:$SkipUnlessPwsh7 {
     It 'maps status, reason and planned actions' {
         $context = New-StepContext -DryRun $true
         $jea = [pscustomobject]@{ status = 'done'; reason = 'Dry-Run.'; plannedActions = @('Ordner anlegen'); output = [pscustomobject]@{ path = 'X' } }

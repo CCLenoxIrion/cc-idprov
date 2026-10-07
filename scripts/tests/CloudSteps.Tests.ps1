@@ -1,7 +1,12 @@
 ﻿#Requires -Modules @{ ModuleName = 'Pester'; ModuleVersion = '5.5.0' }
 <# Tests of the cloud step scripts (phase 4b) with mocked Graph/EXO/Teams cmdlets. #>
 
+BeforeDiscovery {
+    . (Join-Path $PSScriptRoot 'TestEnv.ps1')
+}
+
 BeforeAll {
+    if ($PSVersionTable.PSVersion.Major -lt 7) { return }
     . (Join-Path $PSScriptRoot 'Stubs.ps1')
     foreach ($step in 'Entra.WaitUser', 'Entra.WaitEnabled', 'Entra.UsageLocation', 'Entra.AssignLicense', 'Entra.WaitLicense',
         'EXO.WaitMailbox', 'EXO.DisableNewOutlook', 'EXO.SharedMailboxes',
@@ -58,7 +63,7 @@ BeforeAll {
     }
 }
 
-Describe 'CloudHelpers' {
+Describe 'CloudHelpers' -Skip:$SkipUnlessPwsh7 {
     It 'ConvertTo-ODataLiteral doubles quotes and URL-encodes <Value>' -TestCases @(
         @{ Value = "o'brien#x%+&@example.test"; Expected = "'o%27%27brien%23x%25%2B%26%40example.test'" }
         @{ Value = 'plain'; Expected = "'plain'" }
@@ -127,7 +132,7 @@ Describe 'CloudHelpers' {
     }
 }
 
-Describe 'Entra steps' {
+Describe 'Entra steps' -Skip:$SkipUnlessPwsh7 {
     BeforeEach {
         Mock Connect-MgGraph { $script:TestToken }
         Mock Disconnect-MgGraph { }
@@ -229,7 +234,7 @@ Describe 'Entra steps' {
     }
 }
 
-Describe 'EXO steps' {
+Describe 'EXO steps' -Skip:$SkipUnlessPwsh7 {
     BeforeEach {
         Mock Connect-ExchangeOnline { }
         Mock Disconnect-ExchangeOnline { }
@@ -283,7 +288,7 @@ Describe 'EXO steps' {
     }
 }
 
-Describe 'Teams steps' {
+Describe 'Teams steps' -Skip:$SkipUnlessPwsh7 {
     # Only our own layer is mocked (Connect-OnbTeams, Invoke-OnbTeams): with MicrosoftTeams installed,
     # Pester would mock the real cmdlets with their version-dependent parameter metadata.
     BeforeEach {
@@ -426,7 +431,7 @@ Describe 'Teams steps' {
     }
 }
 
-Describe 'Dry-run (E5)' {
+Describe 'Dry-run (E5)' -Skip:$SkipUnlessPwsh7 {
     BeforeEach {
         Mock Connect-MgGraph { $script:TestToken }
         Mock Disconnect-MgGraph { }
