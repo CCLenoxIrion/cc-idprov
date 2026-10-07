@@ -1,0 +1,13 @@
+﻿# Session configuration "CC.Onboarding.Logon" on the domain controller DC03 – template.
+# Register-OnboardingJea.ps1 -Role Logon -RunAs Gmsa creates the real .pssc.
+@{
+    SchemaVersion              = '2.0.0.0'
+    SessionType                = 'RestrictedRemoteServer'
+    LanguageMode               = 'NoLanguage'
+    TranscriptDirectory        = 'C:\ProgramData\CCOnboarding\Transcripts'
+    RoleDefinitions            = @{ '<NETBIOS>\<WORKER_GMSA>$' = @{ RoleCapabilities = 'OnboardingLogon' } }
+
+    # Dedicated endpoint gMSA with write access to the SCRIPTS folder only. Never a virtual
+    # account on a DC (it would be Domain Admin).
+    GroupManagedServiceAccount = '<NETBIOS>\<ENDPOINT_GMSA>'
+}

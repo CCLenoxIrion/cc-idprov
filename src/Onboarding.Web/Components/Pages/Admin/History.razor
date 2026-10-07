@@ -1,0 +1,75 @@
+@page "/admin/history"
+@attribute [Authorize(Policy = Policies.ITAdmin)]
+@using Onboarding.Data.Entities
+@inject ConfigService Config
+
+<PageTitle>Änderungshistorie</PageTitle>
+<h1>Änderungshistorie der Konfiguration</h1>
+
+<div class="mb-3">
+    <select class="form-select d-inline-block w-auto" @bind="_entityType" @bind:after="LoadAsync">
+        <option value="">Alle</option>
+        <option value="GlobalConfigRecord">Global</option>
+        <option value="AreaConfig">Bereiche</option>
+        <option value="DepartmentConfig">Abteilungen</option>
+        <option value="ChecklistTemplate">Checklisten-Vorlagen</option>
+    </select>
+</div>
+
+<table class="table table-sm align-top">
+    <thead><tr><th>Zeit (UTC)</th><th>Wer</th><th>Objekt</th><th>Änderung</th><th>Unterschiede</th></tr></thead>
+    <tbody>
+        @foreach (var h in _history)
+        {
+            <tr>
+                <td class="text-nowrap small">@h.ChangedAt.UtcDateTime.ToString("yyyy-MM-dd HH:mm:ss")</td>
+                <td>@h.ChangedBy</td>
+                <td class="small">@h.EntityType<br /><span class="text-muted font-monospace">@h.EntityId</span></td>
+                <td>@h.ChangeType</td>
+                <td class="small font-monospace">
+                    @foreach (var (name, oldValue, newValue) in Differences(h))
+                    {
+                        <div><strong>@name</strong>: <span class="text-danger">@oldValue</span> → <span class="text-success">@newValue</span></div>
+                    }
+                </td>
+            </tr>
+        }
+    </tbody>
+</table>
+
+@code {
+    private List<ConfigHistoryEntry> _history = [];
+    private string _entityType = "";
+
+    protected override Task OnInitializedAsync() => LoadAsync();
+
+    private async Task LoadAsync() =>
+        _history = await Config.GetHistoryAsync(string.IsNullOrEmpty(_entityType) ? null : _entityType, 200);
+
+    /// <summary>Top-level property differences between old and new JSON.</summary>
+    private static IEnumerable<(string Name, string Old, string New)> Differences(ConfigHistoryEntry entry)
+    {
+        var oldValues = Parse(entry.OldJson);
+        var newValues = Parse(entry.NewJson);
+        foreach (var name in oldValues.Keys.Union(newValues.Keys).Order(StringComparer.Ordinal))
+        {
+            var o = oldValues.GetValueOrDefault(name, "–");
+            var n = newValues.GetValueOrDefault(name, "–");
+            if (o != n)
+            {
+                yield return (name, o, n);
+            }
+        }
+    }
+
+    private static Dictionary<string, string> Parse(string? json)
+    {
+        if (string.IsNullOrEmpty(json))
+        {
+            return [];
+        }
+
+        using var doc = System.Text.Json.JsonDocument.Parse(json);
+        return doc.RootElement.EnumerateObject().ToDictionary(p => p.Name, p => p.Value.GetRawText());
+    }
+}

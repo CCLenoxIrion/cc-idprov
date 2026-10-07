@@ -1,0 +1,141 @@
+@using Onboarding.Core.LogonScripts
+
+@* Logon script editor (SPEC §4.4): drive chips, mapping table, extra lines, live preview. *@
+
+<div class="row g-3">
+    <div class="col-lg-7">
+        <label class="form-label">Laufwerke trennen</label>
+        <div class="mb-2">
+            @foreach (var letter in Template.DisconnectDrives.ToList())
+            {
+                <span class="badge rounded-pill bg-secondary me-1 fs-6">
+                    @letter:
+                    <button type="button" class="btn btn-sm btn-link text-white p-0 ms-1" title="entfernen"
+                            @onclick="() => Remove(letter)">×</button>
+                </span>
+            }
+            <input class="form-control form-control-sm d-inline-block ms-2" style="width:4rem" maxlength="1"
+                   placeholder="+" @bind="_newLetter" @bind:after="AddLetter" />
+        </div>
+
+        <label class="form-label">Laufwerke verbinden</label>
+        <table class="table table-sm">
+            <thead><tr><th style="width:5rem">Buchstabe</th><th>UNC (Platzhalter erlaubt)</th><th></th></tr></thead>
+            <tbody>
+                @foreach (var mapping in Template.ConnectDrives.ToList())
+                {
+                    <tr>
+                        <td><input class="form-control form-control-sm" maxlength="1" @bind="mapping.Letter" @bind:after="Changed" /></td>
+                        <td><input class="form-control form-control-sm font-monospace" @bind="mapping.Unc" @bind:after="Changed" /></td>
+                        <td><button type="button" class="btn btn-sm btn-outline-danger" @onclick="() => RemoveMapping(mapping)">×</button></td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+        <button type="button" class="btn btn-sm btn-outline-secondary mb-3" @onclick="AddMapping">Zeile hinzufügen</button>
+
+        <label class="form-label">Zusätzliche Zeilen</label>
+        <textarea class="form-control font-monospace" rows="3" @bind="_extraLines" @bind:after="ExtraChanged"></textarea>
+        <div class="form-text">Platzhalter: <code>{sam}</code>, <code>{homeUnc}</code>, <code>{department}</code>. Nur ASCII.</div>
+    </div>
+
+    <div class="col-lg-5">
+        <label class="form-label">Vorschau für Beispielbenutzer</label>
+        <input class="form-control form-control-sm mb-2 font-monospace" @bind="_sampleSam" @bind:after="Changed" />
+        @if (_previewError is not null)
+        {
+            <div class="alert alert-danger small">@_previewError</div>
+        }
+        else
+        {
+            <pre class="border rounded p-2 bg-light small" data-testid="logon-preview">@_preview</pre>
+            <div class="form-text">@_byteCount Bytes, ASCII, CRLF – identisch mit der geschriebenen Datei.</div>
+            <div class="form-text font-monospace small">SHA-256: <span data-testid="logon-hash">@_hash</span></div>
+        }
+    </div>
+</div>
+
+@code {
+    [Parameter, EditorRequired] public LogonScriptTemplate Template { get; set; } = new();
+    [Parameter, EditorRequired] public string HomeUncPattern { get; set; } = "";
+    [Parameter, EditorRequired] public string DepartmentName { get; set; } = "";
+    [Parameter] public EventCallback OnChanged { get; set; }
+
+    private string _newLetter = "";
+    private string _extraLines = "";
+    private string _sampleSam = "mmustermann";
+    private string _preview = "";
+    private string? _previewError;
+    private int _byteCount;
+    private string _hash = "";
+
+    protected override void OnParametersSet()
+    {
+        _extraLines = Lines.Join(Template.ExtraLines);
+        Render();
+    }
+
+    private void Render()
+    {
+        try
+        {
+            var homeUnc = PlaceholderRenderer.Render(HomeUncPattern, new Dictionary<string, string> { [Placeholders.Sam] = _sampleSam });
+            var bytes = LogonScriptGenerator.Generate(Template, new LogonScriptValues(_sampleSam, homeUnc, DepartmentName));
+            _preview = LogonScriptGenerator.ToText(bytes);
+            _byteCount = bytes.Length;
+            _hash = Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(bytes));
+            _previewError = null;
+        }
+        catch (Exception ex) when (ex is LogonScriptException or TemplateException)
+        {
+            _previewError = ex.Message;
+        }
+    }
+
+    private Task Changed()
+    {
+        Render();
+        return OnChanged.InvokeAsync();
+    }
+
+    private Task AddLetter()
+    {
+        var letter = _newLetter.Trim().ToUpperInvariant();
+        _newLetter = "";
+        if (letter.Length == 1 && !Template.DisconnectDrives.Contains(letter, StringComparer.OrdinalIgnoreCase))
+        {
+            Template.DisconnectDrives.Add(letter);
+        }
+
+        return Changed();
+    }
+
+    private Task Remove(string letter)
+    {
+        Template.DisconnectDrives.Remove(letter);
+        return Changed();
+    }
+
+    private Task AddMapping()
+    {
+        Template.ConnectDrives.Add(new DriveMapping());
+        return Changed();
+    }
+
+    private Task RemoveMapping(DriveMapping mapping)
+    {
+        Template.ConnectDrives.Remove(mapping);
+        return Changed();
+    }
+
+    private Task ExtraChanged()
+    {
+        Template.ExtraLines = (_extraLines ?? "").Replace("\r", "", StringComparison.Ordinal).Split('\n').ToList();
+        while (Template.ExtraLines.Count > 0 && string.IsNullOrWhiteSpace(Template.ExtraLines[^1]))
+        {
+            Template.ExtraLines.RemoveAt(Template.ExtraLines.Count - 1);
+        }
+
+        return Changed();
+    }
+}

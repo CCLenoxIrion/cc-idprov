@@ -1,0 +1,41 @@
+@* Editor for additional home folder ACEs (DECISIONS X17). *@
+<table class="table table-sm mb-1" data-testid="@TestId">
+    <thead><tr><th>Principal</th><th>Recht</th><th></th></tr></thead>
+    <tbody>
+        @foreach (var ace in Aces.ToList())
+        {
+            <tr>
+                <td><input class="form-control form-control-sm font-monospace" @bind="ace.Principal" placeholder="CC\Gruppe" /></td>
+                <td>
+                    <select class="form-select form-select-sm" @bind="ace.Right">
+                        @foreach (var right in Enum.GetValues<HomeRight>())
+                        {
+                            <option value="@right">@Label(right)</option>
+                        }
+                    </select>
+                </td>
+                <td><button class="btn btn-sm btn-outline-danger" @onclick="() => Aces.Remove(ace)">×</button></td>
+            </tr>
+        }
+    </tbody>
+</table>
+<button class="btn btn-sm btn-outline-secondary mb-1" @onclick="() => Aces.Add(new HomeAce())">Recht hinzufügen</button>
+<div class="form-text mb-2">
+    Neue Principals und Rechte müssen zusätzlich in der Allowlist des JEA-Endpunkts auf dem Fileserver
+    eingetragen werden (<code>OnboardingEndpoint.psd1</code>, <code>HomeAceAllowlist</code>), sonst lehnt der
+    Endpunkt den Home-Ordner ab (<code>ace-not-allowed</code>). Eingebaute Konten als SID eintragen
+    (<code>S-1-5-18</code> = SYSTEM, <code>S-1-5-32-544</code> = Administratoren), weil ihre Namen von der
+    Sprache des Servers abhängen.
+</div>
+
+@code {
+    [Parameter, EditorRequired] public List<HomeAce> Aces { get; set; } = [];
+
+    [Parameter] public string TestId { get; set; } = "home-aces";
+
+    public static string Label(HomeRight right) => right switch
+    {
+        HomeRight.FullControl => "Vollzugriff",
+        _ => "Ändern",
+    };
+}

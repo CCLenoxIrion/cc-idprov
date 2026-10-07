@@ -1,0 +1,118 @@
+@page "/admin/areas"
+@attribute [Authorize(Policy = Policies.ITAdmin)]
+@inherits OnboardingComponentBase
+@inject ConfigService Config
+
+<PageTitle>Bereiche</PageTitle>
+<h1>Bereiche (Gesellschaften)</h1>
+<p class="text-muted">Bestimmen OU und <code>company</code>. Im Auftrag als Radio-Buttons, genau einer.</p>
+
+<Messages Error="@Error" Info="@Info" />
+
+<table class="table table-sm align-middle">
+    <thead>
+        <tr><th>Reihenfolge</th><th>Name</th><th>OU</th><th>Firma (company)</th><th>Aktiv</th><th></th></tr>
+    </thead>
+    <tbody>
+        @foreach (var area in _areas)
+        {
+            <tr>
+                <td>@area.SortOrder</td>
+                <td>@area.Name</td>
+                <td class="small font-monospace">@area.OuCanonical</td>
+                <td>@area.Company</td>
+                <td>@(area.Active ? "ja" : "nein")</td>
+                <td><button class="btn btn-sm btn-outline-secondary" @onclick="() => Edit(area)">Bearbeiten</button></td>
+            </tr>
+        }
+    </tbody>
+</table>
+
+<button class="btn btn-outline-primary mb-3" @onclick="New">Neuer Bereich</button>
+
+@if (_edit is not null)
+{
+    <div class="card">
+        <div class="card-body">
+            <h2 class="h5">@(_isNew ? "Neuer Bereich" : $"Bereich {_edit.Name}")</h2>
+            <div class="row g-2">
+                <div class="col-md-3">
+                    <label class="form-label">Name</label>
+                    <input class="form-control" @bind="_edit.Name" />
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label">Reihenfolge</label>
+                    <input class="form-control" type="number" @bind="_edit.SortOrder" />
+                </div>
+                <div class="col-md-5">
+                    <label class="form-label">Firma (company)</label>
+                    <input class="form-control" @bind="_edit.Company" />
+                </div>
+                <div class="col-md-2 form-check mt-4 ps-5">
+                    <input class="form-check-input" type="checkbox" id="areaActive" @bind="_edit.Active" />
+                    <label class="form-check-label" for="areaActive">Aktiv</label>
+                </div>
+                <div class="col-12">
+                    <label class="form-label">OU (aus dem Verzeichnis)</label>
+                    <select class="form-select font-monospace" value="@_edit.OuDistinguishedName" @onchange="SelectOu">
+                        <option value="">– OU wählen –</option>
+                        @foreach (var ou in _ous)
+                        {
+                            <option value="@ou.DistinguishedName">@ou.CanonicalName</option>
+                        }
+                    </select>
+                    <div class="form-text font-monospace">@_edit.OuDistinguishedName</div>
+                </div>
+            </div>
+            <button class="btn btn-primary mt-3" disabled="@Busy" @onclick="SaveAsync">Speichern</button>
+            <button class="btn btn-link mt-3" @onclick="() => _edit = null">Abbrechen</button>
+        </div>
+    </div>
+}
+
+@code {
+    private List<AreaConfig> _areas = [];
+    private IReadOnlyList<Onboarding.Core.Directory.OrganizationalUnit> _ous = [];
+    private AreaConfig? _edit;
+    private bool _isNew;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _ous = await Config.GetOrganizationalUnitsAsync();
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync() => _areas = await Config.GetAreasAsync();
+
+    private void Edit(AreaConfig area)
+    {
+        _edit = new AreaConfig
+        {
+            Id = area.Id, Name = area.Name, OuCanonical = area.OuCanonical, OuDistinguishedName = area.OuDistinguishedName,
+            Company = area.Company, SortOrder = area.SortOrder, Active = area.Active, Version = area.Version,
+        };
+        _isNew = false;
+    }
+
+    private void New()
+    {
+        _edit = new AreaConfig { Id = Guid.NewGuid(), SortOrder = (_areas.Count + 1) * 10 };
+        _isNew = true;
+    }
+
+    private void SelectOu(ChangeEventArgs e)
+    {
+        var dn = e.Value?.ToString() ?? "";
+        _edit!.OuDistinguishedName = dn;
+        _edit.OuCanonical = _ous.FirstOrDefault(o => o.DistinguishedName == dn)?.CanonicalName ?? "";
+    }
+
+    private async Task SaveAsync()
+    {
+        if (await RunAsync(() => Config.SaveAreaAsync(_edit!), "Bereich gespeichert."))
+        {
+            _edit = null;
+            await LoadAsync();
+        }
+    }
+}

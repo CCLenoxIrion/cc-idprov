@@ -1,0 +1,7 @@
+# PowerShell files: CRLF in the working tree (Windows hosts, later Authenticode signing).
+# Encoding: UTF-8 with BOM (.editorconfig), checked by ScriptConventionsTests.
+*.ps1 text eol=crlf
+*.psm1 text eol=crlf
+*.psd1 text eol=crlf
+*.psrc text eol=crlf
+*.pssc.template text eol=crlf

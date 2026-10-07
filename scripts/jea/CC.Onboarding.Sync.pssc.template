@@ -1,0 +1,14 @@
+﻿# Session configuration "CC.Onboarding.Sync" on CC01 – template (see CC.Onboarding.pssc.template).
+@{
+    SchemaVersion       = '2.0.0.0'
+    SessionType         = 'RestrictedRemoteServer'
+    LanguageMode        = 'NoLanguage'
+    TranscriptDirectory = 'C:\ProgramData\CCOnboarding\Transcripts'
+    RoleDefinitions     = @{ '<NETBIOS>\<WORKER_GMSA>$' = @{ RoleCapabilities = 'OnboardingSync' } }
+
+    # (a) Virtual Account mit Gruppe (z. B. lokale Gruppe ADSyncOperators):
+    RunAsVirtualAccount       = $true
+    RunAsVirtualAccountGroups = @('ADSyncOperators')
+    # (b) eigenes Endpunkt-gMSA (Mitglied von ADSyncOperators auf CC01):
+    # GroupManagedServiceAccount = '<NETBIOS>\<ENDPOINT_GMSA>'
+}

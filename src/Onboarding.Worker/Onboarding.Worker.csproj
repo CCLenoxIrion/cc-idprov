@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk.Worker">
+  <!-- Phase 3: polling worker, later a Windows service. -->
+  <PropertyGroup>
+    <UserSecretsId>dotnet-Onboarding.Worker-407f23c5-e14c-420f-844e-1a11d487a748</UserSecretsId>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Onboarding.Core\Onboarding.Core.csproj" />
+    <ProjectReference Include="..\Onboarding.Data\Onboarding.Data.csproj" />
+    <ProjectReference Include="..\Onboarding.Steps\Onboarding.Steps.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.Hosting" />
+    <PackageReference Include="Microsoft.Extensions.Hosting.WindowsServices" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="Onboarding.Tests" />
+  </ItemGroup>
+</Project>

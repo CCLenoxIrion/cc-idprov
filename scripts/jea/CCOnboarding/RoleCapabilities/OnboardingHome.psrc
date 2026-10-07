@@ -1,0 +1,9 @@
+﻿# Role capability for the worker gMSA on the file server DC01 (endpoint "CC.Onboarding").
+# Only these two functions are visible; no cmdlets, no providers, no external commands.
+@{
+    GUID             = '8a7e2c41-9f3d-4b6a-8c2e-1d5f7a9b3c02'
+    Author           = 'CleanControlling IT'
+    Description      = 'Onboarding: Home-Ordner und Home-Freigabe'
+    ModulesToImport  = @('CCOnboarding')
+    VisibleFunctions = @('New-OnbHomeFolder', 'New-OnbHomeShare')
+}

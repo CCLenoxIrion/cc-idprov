@@ -1,0 +1,34 @@
+@page "/admin/departments"
+@attribute [Authorize(Policy = Policies.ITAdmin)]
+@inject ConfigService Config
+
+<PageTitle>Abteilungen</PageTitle>
+<h1>Abteilungen</h1>
+<p class="text-muted">Gruppen, Lizenzen, Postfächer, Laufwerke und Telefonie je Abteilung (SPEC §4.3).</p>
+
+<table class="table table-sm align-middle">
+    <thead>
+        <tr><th>Name</th><th>AD-Gruppen</th><th>Lizenzen</th><th>Telefonie erwartet</th><th>Aktiv</th><th></th></tr>
+    </thead>
+    <tbody>
+        @foreach (var d in _departments)
+        {
+            <tr>
+                <td>@d.Name</td>
+                <td class="small">@string.Join(", ", d.AdGroups)</td>
+                <td class="small">@string.Join(", ", d.Licenses.SkuPartNumbers)</td>
+                <td>@(d.Teams.PhoneExpected ? "ja" : "nein")</td>
+                <td>@(d.Active ? "ja" : "nein")</td>
+                <td><a class="btn btn-sm btn-outline-secondary" href="admin/departments/@d.Id">Bearbeiten</a></td>
+            </tr>
+        }
+    </tbody>
+</table>
+
+<a class="btn btn-outline-primary" href="admin/departments/new">Neue Abteilung</a>
+
+@code {
+    private List<DepartmentConfig> _departments = [];
+
+    protected override async Task OnInitializedAsync() => _departments = await Config.GetDepartmentsAsync();
+}

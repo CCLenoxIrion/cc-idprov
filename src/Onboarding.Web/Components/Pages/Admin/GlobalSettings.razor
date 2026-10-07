@@ -1,0 +1,202 @@
+@page "/admin/global"
+@attribute [Authorize(Policy = Policies.ITAdmin)]
+@inherits OnboardingComponentBase
+@inject ConfigService Config
+
+<PageTitle>Globale Konfiguration</PageTitle>
+<h1>Globale Konfiguration</h1>
+
+<Messages Error="@Error" Info="@Info" />
+
+@if (_settings is null)
+{
+    <p>Lädt …</p>
+    return;
+}
+
+<div class="row g-3">
+    <fieldset class="col-lg-6">
+        <legend class="h5">Domäne und Adressen</legend>
+        <label class="form-label">Domäne (FQDN)</label>
+        <input class="form-control mb-2" @bind="_settings.DomainFqdn" />
+        <label class="form-label">NetBIOS-Name</label>
+        <input class="form-control mb-2" @bind="_settings.DomainNetBios" placeholder="noch offen (SPEC §11)" />
+        <label class="form-label">UPN-Suffix</label>
+        <input class="form-control mb-2" @bind="_settings.UpnSuffix" />
+        <label class="form-label">Mail-Muster (Vorbelegung)</label>
+        <input class="form-control mb-2 font-monospace" @bind="_settings.MailPattern" />
+        <label class="form-label">proxyAddresses-Vorlagen (eine pro Zeile, <code>SMTP:</code> = primär)</label>
+        <textarea class="form-control mb-2 font-monospace" rows="3" @bind="_proxyTemplates"></textarea>
+        <div class="form-text mb-2">Platzhalter: @string.Join(", ", Placeholders.All.Select(p => "{" + p + "}"))</div>
+        <div class="row">
+            <div class="col">
+                <label class="form-label">Attribut Doktortitel</label>
+                <input class="form-control mb-2" @bind="_settings.DoctorTitle.Attribute" />
+            </div>
+            <div class="col">
+                <label class="form-label">Wert</label>
+                <input class="form-control mb-2" @bind="_settings.DoctorTitle.Value" />
+            </div>
+        </div>
+        <label class="form-label">Attribut für Request-Id (wird bei AD.CreateUser gesetzt)</label>
+        <input class="form-control mb-2" @bind="_settings.RequestIdAttribute" />
+    </fieldset>
+
+    <fieldset class="col-lg-6">
+        <legend class="h5">Telefonie</legend>
+        <label class="form-label">Präfix E.164</label>
+        <input class="form-control mb-2 font-monospace" @bind="_settings.PhonePrefixE164" />
+        <label class="form-label">Anzeigeformat telephoneNumber</label>
+        <input class="form-control mb-2 font-monospace" @bind="_settings.PhoneDisplayFormat" />
+        <label class="form-label">Voice-Routing-Policy</label>
+        <input class="form-control mb-2" @bind="_settings.Teams.VoiceRoutingPolicy" />
+        <label class="form-label">Voicemail-Policy</label>
+        <input class="form-control mb-2" @bind="_settings.Teams.VoicemailPolicy" />
+        <div class="row">
+            <div class="col">
+                <label class="form-label">Voicemail-Sprache</label>
+                <input class="form-control mb-2" @bind="_settings.Teams.VoicemailPromptLanguage" />
+            </div>
+            <div class="col">
+                <label class="form-label">Nummerntyp</label>
+                <input class="form-control mb-2" @bind="_settings.Teams.PhoneNumberType" />
+            </div>
+        </div>
+    </fieldset>
+
+    <fieldset class="col-lg-6">
+        <legend class="h5">Home und Anmeldeskript</legend>
+        <div class="row">
+            <div class="col">
+                <label class="form-label">Home-Server (Fileserver)</label>
+                <input class="form-control mb-2" @bind="_settings.Home.Server" />
+            </div>
+            <div class="col">
+                <label class="form-label">Lokaler Stammpfad</label>
+                <input class="form-control mb-2 font-monospace" @bind="_settings.Home.LocalRoot" />
+            </div>
+        </div>
+        <label class="form-label">Freigabename-Muster</label>
+        <input class="form-control mb-2 font-monospace" @bind="_settings.Home.ShareNamePattern" />
+        <label class="form-label">UNC-Muster Home</label>
+        <input class="form-control mb-2 font-monospace" @bind="_settings.Home.UncPattern" />
+        <label class="form-label">NTFS-Recht des Benutzers auf dem Home-Ordner</label>
+        <select class="form-select mb-2" @bind="_settings.Home.UserRight" data-testid="home-user-right">
+            @foreach (var right in Enum.GetValues<HomeRight>())
+            {
+                <option value="@right">@HomeAceEditor.Label(right)</option>
+            }
+        </select>
+        <div class="form-text mb-2">Vererbung am Home-Ordner ist aus, Besitzer laut Endpunkt-Konfiguration. „Ändern“ verhindert, dass Benutzer Rechte ändern.</div>
+        <label class="form-label">Zusätzliche Rechte auf jedem Home-Ordner</label>
+        <HomeAceEditor Aces="_settings.Home.AdditionalAces" TestId="global-home-aces" />
+        <label class="form-label">Server Anmeldeskripte (Domänencontroller mit JEA-Endpunkt)</label>
+        <input class="form-control mb-2" @bind="_settings.LogonScript.Server" data-testid="logon-server" />
+        <label class="form-label">Pfad Anmeldeskripte</label>
+        <input class="form-control mb-2 font-monospace" @bind="_settings.LogonScript.Path" />
+        <label class="form-label">Dateiname-Muster Anmeldeskript</label>
+        <input class="form-control mb-2 font-monospace" @bind="_settings.LogonScript.FileNamePattern" />
+    </fieldset>
+
+    <fieldset class="col-lg-6">
+        <legend class="h5">Cloud und Lizenzen</legend>
+        <label class="form-label">Entra-Connect-Server</label>
+        <input class="form-control mb-2" @bind="_settings.EntraConnectServer" />
+        <div class="row">
+            <div class="col">
+                <label class="form-label">UsageLocation</label>
+                <input class="form-control mb-2" @bind="_settings.UsageLocation" maxlength="2" />
+            </div>
+            <div class="col">
+                <label class="form-label">Lizenzmodus</label>
+                <select class="form-select mb-2" @bind="_settings.LicenseMode">
+                    @foreach (var mode in Enum.GetValues<LicenseMode>())
+                    {
+                        <option value="@mode">@mode</option>
+                    }
+                </select>
+            </div>
+        </div>
+        <div class="mb-2" style="max-width:32rem">
+            <label class="form-label">Freigaberegel (DECISIONS A1)</label>
+            <select class="form-select" @bind="_settings.ApprovalPolicy" data-testid="approval-policy">
+                <option value="@ApprovalPolicy.SelfApprovalWithReason">Selbstfreigabe mit Begründung erlaubt</option>
+                <option value="@ApprovalPolicy.FourEyes">Vier-Augen-Prinzip (Anleger ≠ Freigebender)</option>
+            </select>
+            <div class="form-text">Gilt nur für Aufträge, die ein ITAdmin selbst angelegt hat. Requester dürfen nie freigeben.</div>
+        </div>
+        <div class="form-check mb-2">
+            <input class="form-check-input" type="checkbox" id="newOutlook" @bind="_settings.OneWinNativeOutlookEnabled" />
+            <label class="form-check-label" for="newOutlook">Neues Outlook erlaubt (OneWinNativeOutlookEnabled)</label>
+        </div>
+        <label class="form-label">Disabled-Users-OU (v2)</label>
+        <input class="form-control mb-2 font-monospace" @bind="_settings.DisabledUsersOU" />
+        <label class="form-label">Thumbprint Worker-Zertifikat (Startpasswort)</label>
+        <input class="form-control mb-2 font-monospace" @bind="_settings.PasswordCertThumbprint" />
+    </fieldset>
+
+    <fieldset class="col-lg-6">
+        <legend class="h5">Zeit und Ausführung</legend>
+        <label class="form-label">Zeitzone (IANA)</label>
+        <input class="form-control mb-2" @bind="_settings.TimeZone" />
+        <label class="form-label">Vorlauf Kontoaktivierung (hh:mm:ss bzw. d.hh:mm:ss)</label>
+        <input class="form-control mb-2 font-monospace" @bind="_leadTime" />
+        <label class="form-label">Polling-Intervall</label>
+        <input class="form-control mb-2 font-monospace" @bind="_pollInterval" />
+        <label class="form-label">Backoff-Plan (eine Wartezeit pro Zeile, letzte wiederholt sich)</label>
+        <textarea class="form-control mb-2 font-monospace" rows="5" @bind="_backoff"></textarea>
+        <label class="form-label">Step-Timeout</label>
+        <input class="form-control mb-2 font-monospace" @bind="_stepTimeout" />
+    </fieldset>
+</div>
+
+<button class="btn btn-primary mt-3" disabled="@Busy" @onclick="SaveAsync">Speichern</button>
+
+@code {
+    private GlobalConfig? _settings;
+    private long _version;
+    private string _proxyTemplates = "";
+    private string _leadTime = "";
+    private string _pollInterval = "";
+    private string _backoff = "";
+    private string _stepTimeout = "";
+
+    protected override Task OnInitializedAsync() => LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        var record = await Config.GetGlobalAsync();
+        _settings = record.Settings;
+        _version = record.Version;
+        _proxyTemplates = Lines.Join(_settings.ProxyAddressTemplates);
+        _leadTime = Lines.Format(_settings.EnableLeadTime);
+        _pollInterval = Lines.Format(_settings.Execution.PollInterval);
+        _backoff = Lines.Join(_settings.Execution.BackoffSchedule.Select(Lines.Format));
+        _stepTimeout = Lines.Format(_settings.Execution.StepTimeout);
+    }
+
+    private async Task SaveAsync()
+    {
+        if (_settings is null)
+        {
+            return;
+        }
+
+        var ok = await RunAsync(async () =>
+        {
+            _settings.ProxyAddressTemplates = Lines.Split(_proxyTemplates);
+            _settings.EnableLeadTime = ParseTime(_leadTime, "Vorlauf");
+            _settings.Execution.PollInterval = ParseTime(_pollInterval, "Polling-Intervall");
+            _settings.Execution.StepTimeout = ParseTime(_stepTimeout, "Step-Timeout");
+            _settings.Execution.BackoffSchedule = Lines.Split(_backoff).Select(l => ParseTime(l, "Backoff")).ToList();
+            await Config.SaveGlobalAsync(_settings, _version);
+        }, "Gespeichert.");
+        if (ok)
+        {
+            await LoadAsync();
+        }
+    }
+
+    private static TimeSpan ParseTime(string text, string label) =>
+        Lines.TryParse(text, out var value) ? value : throw new UserFacingException($"{label}: '{text}' ist keine gültige Zeitspanne.");
+}

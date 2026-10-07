@@ -1,0 +1,14 @@
+﻿# Session configuration "CC.Onboarding" on the file server DC01 (member server) – template.
+# Register-OnboardingJea.ps1 -Role Home creates the real .pssc via New-PSSessionConfigurationFile.
+@{
+    SchemaVersion       = '2.0.0.0'
+    SessionType         = 'RestrictedRemoteServer'
+    LanguageMode        = 'NoLanguage'
+    TranscriptDirectory = 'C:\ProgramData\CCOnboarding\Transcripts'
+
+    # Only the worker gMSA may connect; it gets exactly the role capability OnboardingHome.
+    RoleDefinitions     = @{ '<NETBIOS>\<WORKER_GMSA>$' = @{ RoleCapabilities = 'OnboardingHome' } }
+
+    # Run-as: virtual account = local administrator on this member server (DEPLOYMENT.md §4.2).
+    RunAsVirtualAccount = $true
+}
